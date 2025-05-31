@@ -74,6 +74,9 @@
     .list-item {
       margin-left: 16px;
       margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
     .hidden {
       display: none;
@@ -106,6 +109,12 @@
           2px 2px 0px #000000, 
           3px 3px 0px #000000;
       }
+    }
+    /* Estilo para el icono corona */
+    .crown-icon {
+      width: 20px;
+      height: 20px;
+      fill: gold;
     }
   </style>
 </head>
@@ -251,309 +260,109 @@
 
       // 1) Inicializa state (scores/turnIndex/questionIndex)
       set(ref(db, `salas/${roomId}/state`), {
-        scores: { [userName]: 0 },
         turnIndex: 0,
-        questionIndex: 0
+        questionIndex: 0,
+        scores: {}
       })
-        .then(() => {
-          // 2) Añade al host a “usuarios”
-          joinRoom(roomId, userName);
-          showMessage(`Sala "${roomId}" creada. Esperando jugadores...`);
-        })
-        .catch((err) => {
-          console.error("Error createRoom:", err);
-          showMessage("Error creando sala");
-        });
-
-      // 3) Limpieza automática tras 15 min
-      clearTimeout(countdownInterval);
-      setTimeout(() => {
-        console.log("Limpiando sala automáticamente:", roomId);
-        remove(ref(db, `salas/${roomId}`)).catch((e) => console.error(e));
-      }, 15 * 60 * 1000);
+      .then(() => {
+        // 2) Guarda usuario con score 0
+        set(ref(db, `salas/${roomId}/scores/${userName}`), 0);
+        // 3) Guarda usuario en users para mostrar lista
+        set(ref(db, `salas/${roomId}/users/${userName}`), true);
+        // 4) Muestra usuarios y ranking actualizados
+        listenToRoom(roomId);
+        showMessage(`Sala creada: ${roomId}`);
+      })
+      .catch((err) => {
+        showMessage("Error al crear sala: " + err.message);
+      });
     }
 
-    function joinRoom(roomId, userName) {
-      console.log("joinRoom()", roomId, userName);
-      currentRoomId   = roomId;
-      currentUserName = userName;
-
-      // 1) Añade usuario a “usuarios”
-      set(ref(db, `salas/${roomId}/usuarios/${userName}`), true)
-        .then(() => {
-          // 2) Asegura entrada en state/scores
-          set(ref(db, `salas/${roomId}/state/scores/${userName}`), 0).catch((e) =>
-            console.error("Error init score:", e)
-          );
-          showMessage(`Unido a sala "${roomId}". Esperando más jugadores...`);
-          listenUsers(roomId);
-        })
-        .catch((err) => {
-          console.error("Error joinRoom:", err);
-          showMessage("Error al unirte");
-        });
-    }
-
-    function resetAllRooms() {
-      console.log("resetAllRooms()");
-      remove(ref(db, "salas"))
-        .then(() => {
-          showMessage("Todas las salas reiniciadas");
-          clearUsersList();
-          countdownDiv.textContent = "";
-        })
-        .catch((err) => {
-          console.error("Error resetAllRooms:", err);
-          showMessage("Error reiniciando salas");
-        });
-    }
-
-    function listenUsers(roomId) {
-      console.log("listenUsers()", roomId);
-      const usersRef = ref(db, `salas/${roomId}/usuarios`);
-      onValue(
-        usersRef,
-        (snapshot) => {
-          const data = snapshot.val() || {};
-          const list = Object.keys(data);
-          console.log("Usuarios actualmente:", list);
-
-          clearUsersList();
-          list.forEach((u) => {
-            const li = document.createElement("li");
-            li.textContent = u;
-            li.classList.add("list-item");
-            usersListUl.appendChild(li);
-          });
-
-          if (list.length >= 2 && !countdownInterval) {
-            startCountdown();
-          }
-        },
-        (error) => {
-          console.error("listenUsers error:", error);
-        }
-      );
-    }
-
-    function startCountdown() {
-      console.log("startCountdown()");
-      let c = 15;
-      countdownDiv.textContent = `Comienza en ${c}s`;
-      countdownInterval = setInterval(() => {
-        c--;
-        if (c > 0) {
-          countdownDiv.textContent = `Comienza en ${c}s`;
-        } else {
-          clearInterval(countdownInterval);
-          countdownInterval = null;
-          countdownDiv.textContent = "";
-          console.log("Cuenta atrás finalizada; mostrando quiz");
-          showQuizScreen();
-        }
-      }, 1000);
-    }
-
-    // ———————— 4. Funciones de “Quiz” ————————
-
-    function showQuizScreen() {
-      console.log("showQuizScreen()");
-      joinScreenDiv.classList.add("hidden");
-      quizScreenDiv.classList.remove("hidden");
-      listenGameState(currentRoomId);
-    }
-
-    function listenGameState(roomId) {
-      console.log("listenGameState()", roomId);
-      const stateRef = ref(db, `salas/${roomId}/state`);
-      onValue(
-        stateRef,
-        (snapshot) => {
-          const val = snapshot.val();
-          if (!val) {
-            console.warn("listenGameState: state aún no existe");
-            return;
-          }
-
-          const scores = val.scores || {};
-          const turnIdx = val.turnIndex ?? 0;
-          const qIdx    = val.questionIndex ?? 0;
-          console.log("GameState change:", { scores, turnIdx, qIdx });
-
-          // Comprueba si hay ganador (>=10)
-          for (const [name, pts] of Object.entries(scores)) {
-            if (pts >= 10) {
-              // Incrementar ranking antes de mostrar ganador
-              incrementRanking(name);
-              showWinner(name);
-              return;
-            }
-          }
-
-          // Actualiza pregunta
-          const pregunta = questions[qIdx];
-          quizQuestionText.textContent = pregunta.text;
-
-          const players        = Object.keys(scores);
-          const currentTurn    = players[turnIdx] || "";
-          const isMyTurn       = currentTurn === currentUserName;
-          console.log("Turno:", currentTurn, "(soy yo:", isMyTurn, ")");
-
-          // Genera botones de opciones
-          quizOptionsDiv.innerHTML = "";
-          pregunta.options.forEach((opt, i) => {
-            const btn = document.createElement("button");
-            btn.textContent = opt;
-            btn.disabled   = !isMyTurn;
-            btn.onclick    = () => submitAnswer(i);
-            quizOptionsDiv.appendChild(btn);
-          });
-
-          // Muestra puntajes
-          quizScoresDiv.innerHTML = "";
-          Object.entries(scores).forEach(([name, pts]) => {
-            const p = document.createElement("p");
-            p.textContent = `${name}: ${pts} pts`;
-            p.classList.add("score-item");
-            quizScoresDiv.appendChild(p);
-          });
-        },
-        (error) => {
-          console.error("listenGameState error:", error);
-        }
-      );
-    }
-
-    function submitAnswer(selectedIdx) {
-      console.log("submitAnswer(index):", selectedIdx);
-      const stateRef = ref(db, `salas/${currentRoomId}/state`);
-      runTransaction(
-        stateRef,
-        (currentData) => {
-          if (currentData === null) return null;
-          const scores = currentData.scores || {};
-          const players = Object.keys(scores);
-          const turnIdx = currentData.turnIndex ?? 0;
-          const qIdx    = currentData.questionIndex ?? 0;
-
-          const pregunta = questions[qIdx];
-          if (
-            players[turnIdx] === currentUserName &&
-            selectedIdx === pregunta.correctIndex
-          ) {
-            scores[currentUserName] = (scores[currentUserName] || 0) + 1;
-            console.log("Acertó:", currentUserName);
-          } else {
-            console.log("Falló o no era su turno");
-          }
-
-          currentData.turnIndex = (turnIdx + 1) % players.length;
-
-          if (
-            players[turnIdx] === currentUserName &&
-            selectedIdx === pregunta.correctIndex
-          ) {
-            currentData.questionIndex = (qIdx + 1) % questions.length;
-          }
-
-          currentData.scores = scores;
-          return currentData;
-        },
-        (error, committed, snapshot) => {
-          if (error) console.error("Transaction error:", error);
-          else if (!committed) console.warn("Transacción no se aplicó.");
-        }
-      );
-    }
-
-    function showWinner(name) {
-      console.log("showWinner:", name);
-      quizScreenDiv.innerHTML = `
-        <div class="center">
-          <h2>¡El ganador es ${name}!</h2>
-          <p>Volviendo al inicio en 5 segundos…</p>
-        </div>
-      `;
-      setTimeout(() => {
-        window.location.reload();
-      }, 5000);
-    }
-
-    // ———————— 5. Funciones de Ranking ————————
-
-    /**
-     * Incrementa en 1 el contador de victorias en /ranking/{username}.
-     */
-    function incrementRanking(winnerName) {
-      console.log("incrementRanking()", winnerName);
-      const rankRef = ref(db, `ranking/${winnerName}`);
-      runTransaction(
-        rankRef,
-        (currentVal) => {
-          if (currentVal === null) {
-            return 1;
-          }
-          return currentVal + 1;
-        },
-        (error, committed, snapshot) => {
-          if (error) console.error("incrementRanking error:", error);
-        }
-      );
-    }
-
-    /**
-     * Escucha /ranking y actualiza la lista ordenada de mayor a menor.
-     */
-    function listenGlobalRanking() {
-      const rankingRef = ref(db, "ranking");
-      onValue(
-        rankingRef,
-        (snapshot) => {
-          const data = snapshot.val() || {};
-          // data = { usuario1: 3, usuario2: 5, ... }
-          const arr = Object.entries(data); // [ ["usuario1",3], ["usuario2",5], ... ]
-          // Ordena de mayor a menor según la segunda posición (wins)
-          arr.sort((a, b) => b[1] - a[1]);
-          console.log("Ranking actual:", arr);
-
-          // Construye el <ul> con items "Usuario: victorias"
-          clearRankingList();
-          arr.forEach(([user, wins]) => {
-            const li = document.createElement("li");
-            li.textContent = `${user}: ${wins} victorias`;
-            li.classList.add("list-item");
-            rankingListUl.appendChild(li);
-          });
-        },
-        (error) => {
-          console.error("listenGlobalRanking error:", error);
-        }
-      );
-    }
-
-    // ———————— 6. Configurar eventos y arrancar listeners ————————
-
-    btnCreateRoom.addEventListener("click", createRoom);
-    btnJoinRoom.addEventListener("click", () => {
+    function joinRoom() {
       const roomId   = roomIdInput.value.trim();
       const userName = userNameInput.value.trim();
-      console.log("Botón Unirse clickeado:", roomId, userName);
       if (!roomId || !userName) {
         showMessage("Completa ambos campos");
         return;
       }
-      joinRoom(roomId, userName);
-    });
-    btnResetAll.addEventListener("click", resetAllRooms);
+      currentRoomId   = roomId;
+      currentUserName = userName;
 
-    // Cuando cargue la página:
-    window.addEventListener("load", () => {
-      console.log("Página cargada, mostrando Join Room");
-      joinScreenDiv.classList.remove("hidden");
-      quizScreenDiv.classList.add("hidden");
-      // Empezamos a escuchar el ranking global desde el inicio
-      listenGlobalRanking();
-    });
+      // Añade usuario a users
+      set(ref(db, `salas/${roomId}/users/${userName}`), true);
+      // Inicializa score a 0 (si no existe)
+      set(ref(db, `salas/${roomId}/scores/${userName}`), 0);
+
+      listenToRoom(roomId);
+      showMessage(`Unido a la sala: ${roomId}`);
+    }
+
+    function resetAll() {
+      remove(ref(db, "salas"))
+      .then(() => {
+        showMessage("Todas las salas fueron reiniciadas");
+        clearUsersList();
+        clearRankingList();
+      })
+      .catch((err) => {
+        showMessage("Error al reiniciar: " + err.message);
+      });
+    }
+
+    // ———————— 4. Listener de sala para actualizar UI ————————
+
+    function listenToRoom(roomId) {
+      // Escuchar usuarios
+      const usersRef = ref(db, `salas/${roomId}/users`);
+      onValue(usersRef, (snapshot) => {
+        const users = snapshot.val() || {};
+        usersListUl.innerHTML = "";
+        Object.keys(users).forEach(user => {
+          const li = document.createElement("li");
+          li.textContent = user;
+          usersListUl.appendChild(li);
+        });
+      });
+
+      // Escuchar ranking (scores)
+      const scoresRef = ref(db, `salas/${roomId}/scores`);
+      onValue(scoresRef, (snapshot) => {
+        const scores = snapshot.val() || {};
+        // Ordenar por puntaje descendente
+        const sorted = Object.entries(scores)
+          .sort((a,b) => b[1] - a[1]);
+
+        rankingListUl.innerHTML = "";
+
+        sorted.forEach(([user, score], idx) => {
+          const li = document.createElement("li");
+          li.classList.add("list-item");
+          li.textContent = `${idx + 1}. ${user} — ${score} pts`;
+
+          // Agregar corona SVG al primer puesto
+          if (idx === 0) {
+            const crownSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            crownSvg.setAttribute("viewBox", "0 0 24 24");
+            crownSvg.setAttribute("class", "crown-icon");
+
+            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("d", "M5 16L3 6l5 4 4-5 4 5 5-4-2 10H5z");
+            path.setAttribute("fill", "gold");
+
+            crownSvg.appendChild(path);
+            li.insertBefore(crownSvg, li.firstChild);
+          }
+          rankingListUl.appendChild(li);
+        });
+      });
+    }
+
+    // ———————— 5. Eventos botones ————————
+
+    btnCreateRoom.addEventListener("click", createRoom);
+    btnJoinRoom.addEventListener("click", joinRoom);
+    btnResetAll.addEventListener("click", resetAll);
+
   </script>
 </body>
 </html>
