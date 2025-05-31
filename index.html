@@ -95,7 +95,7 @@
        ———————————————————————————————————————————————————— -->
   <script type="module">
     // Importa solo los módulos que necesitamos de Firebase
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+    import { initializeApp }      from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
     import {
       getDatabase,
       ref,
@@ -106,7 +106,6 @@
     } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
     // ———————— 1. Configura tu Firebase ————————
-    // Sustituye con la configuración de tu Web App obtenida desde Firebase Console
     const firebaseConfig = {
       apiKey: "AIzaSyDAYh1x8p1wbdNEM4nA33y9sWh2Q3MrLxo",
       authDomain: "bugura-cf2cd.firebaseapp.com",
@@ -119,31 +118,31 @@
 
     // Inicializa Firebase
     const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
+    const db  = getDatabase(app);
 
     // ———————— 2. Variables de estado global ————————
-    let currentRoomId = "";
-    let currentUserName = "";
+    let currentRoomId     = "";
+    let currentUserName   = "";
     let countdownInterval = null;
 
     // Referencias a elementos del DOM
-    const joinScreenDiv = document.getElementById("join-screen");
-    const quizScreenDiv = document.getElementById("quiz-screen");
+    const joinScreenDiv    = document.getElementById("join-screen");
+    const quizScreenDiv    = document.getElementById("quiz-screen");
 
-    const roomIdInput = document.getElementById("input-room-id");
-    const userNameInput = document.getElementById("input-username");
-    const btnCreateRoom = document.getElementById("btn-create-room");
-    const btnJoinRoom = document.getElementById("btn-join-room");
-    const btnResetAll = document.getElementById("btn-reset-all");
-    const messageDiv = document.getElementById("message");
+    const roomIdInput      = document.getElementById("input-room-id");
+    const userNameInput    = document.getElementById("input-username");
+    const btnCreateRoom    = document.getElementById("btn-create-room");
+    const btnJoinRoom      = document.getElementById("btn-join-room");
+    const btnResetAll      = document.getElementById("btn-reset-all");
+    const messageDiv       = document.getElementById("message");
 
-    const usersListUl = document.getElementById("users-list");
-    const countdownDiv = document.getElementById("countdown");
+    const usersListUl      = document.getElementById("users-list");
+    const countdownDiv     = document.getElementById("countdown");
 
     const quizQuestionText = document.getElementById("quiz-question");
-    const quizOptionsDiv = document.getElementById("quiz-options");
-    const quizScoresDiv = document.getElementById("quiz-scores");
-    const winnerDiv = document.getElementById("winner");
+    const quizOptionsDiv   = document.getElementById("quiz-options");
+    const quizScoresDiv    = document.getElementById("quiz-scores");
+    const winnerDiv        = document.getElementById("winner");
 
     // Banco de preguntas (idéntico al de Android)
     const questions = [
@@ -170,18 +169,18 @@
      * Crea una nueva sala en Firebase con el roomId y añade al host.
      */
     function createRoom() {
-      const roomId = roomIdInput.value.trim();
+      const roomId   = roomIdInput.value.trim();
       const userName = userNameInput.value.trim();
       if (!roomId || !userName) {
         showMessage("Completa ambos campos");
         return;
       }
-      currentRoomId = roomId;
+      currentRoomId   = roomId;
       currentUserName = userName;
 
       // Referencia a la sala
       const roomRef = ref(db, `salas/${roomId}`);
-      // Crea la estructura inicial de la sala
+      // Estructura inicial de la sala
       set(roomRef, {
         usuarios: { [userName]: true },
         state: {
@@ -205,13 +204,13 @@
      * Se une a una sala existente, añadiendo el nombre de usuario.
      */
     function joinRoom() {
-      const roomId = roomIdInput.value.trim();
+      const roomId   = roomIdInput.value.trim();
       const userName = userNameInput.value.trim();
       if (!roomId || !userName) {
         showMessage("Completa ambos campos");
         return;
       }
-      currentRoomId = roomId;
+      currentRoomId   = roomId;
       currentUserName = userName;
 
       const userRef = ref(db, `salas/${roomId}/usuarios/${userName}`);
@@ -341,7 +340,7 @@
           // Extrae información
           const scores = val.scores || {};
           const turnIdx = val.turnIndex ?? 0;
-          const qIdx = val.questionIndex ?? 0;
+          const qIdx    = val.questionIndex ?? 0;
 
           // Detecta ganador
           for (const [name, pts] of Object.entries(scores)) {
@@ -358,15 +357,15 @@
           // Habilita/deshabilita botones según turno
           const players = Object.keys(scores);
           const currentTurnName = players[turnIdx] || "";
-          const isMyTurn = currentTurnName === currentUserName;
+          const isMyTurn       = currentTurnName === currentUserName;
 
           // Limpia opciones previas
           quizOptionsDiv.innerHTML = "";
           pregunta.options.forEach((opt, i) => {
             const btn = document.createElement("button");
             btn.textContent = opt;
-            btn.disabled = !isMyTurn;
-            btn.onclick = () => submitAnswer(i);
+            btn.disabled   = !isMyTurn;
+            btn.onclick    = () => submitAnswer(i);
             quizOptionsDiv.appendChild(btn);
           });
 
@@ -388,45 +387,59 @@
     /**
      * Envía la respuesta (índice de opción) a Firebase usando una transacción,
      * actualizando scores, turnIndex y questionIndex.
+     *
+     * CORREGIDO para el SDK modular v9: el callback recibe `currentData` como objeto
+     * y retorna el nuevo objeto modificado.
      */
     function submitAnswer(selectedIdx) {
       const stateRef = ref(db, `salas/${currentRoomId}/state`);
       runTransaction(
         stateRef,
-        (current) => {
-          const m = current.val();
-          if (!m) return;
-          const scores = m.scores || {};
-          const players = Object.keys(scores);
-          const turnIdx = m.turnIndex ?? 0;
-          const qIdx = m.questionIndex ?? 0;
+        (currentData) => {
+          // currentData es el objeto JavaScript actual de `state`
+          if (currentData === null) return null;
 
-          // Si el turno de este cliente y la respuesta es correcta, suma punto
+          const scores = currentData.scores || {};
+          const players = Object.keys(scores);
+          const turnIdx = currentData.turnIndex ?? 0;
+          const qIdx    = currentData.questionIndex ?? 0;
+
+          // Si es turno del usuario y respondió correctamente, suma punto
           const pregunta = questions[qIdx];
-          if (players[turnIdx] === currentUserName && selectedIdx === pregunta.correctIndex) {
+          if (
+            players[turnIdx] === currentUserName &&
+            selectedIdx === pregunta.correctIndex
+          ) {
             scores[currentUserName] = (scores[currentUserName] || 0) + 1;
           }
 
           // Siempre avanza turno
-          m.turnIndex = (turnIdx + 1) % players.length;
+          currentData.turnIndex = (turnIdx + 1) % players.length;
 
           // Si acertó, avanza pregunta
-          if (players[turnIdx] === currentUserName && selectedIdx === pregunta.correctIndex) {
-            m.questionIndex = (qIdx + 1) % questions.length;
+          if (
+            players[turnIdx] === currentUserName &&
+            selectedIdx === pregunta.correctIndex
+          ) {
+            currentData.questionIndex = (qIdx + 1) % questions.length;
           }
 
-          m.scores = scores;
-          current.val = m;
-          return current;
+          // Actualiza el objeto `scores` en currentData
+          currentData.scores = scores;
+
+          // Devuelve el objeto modificado para que Firebase lo escriba
+          return currentData;
         },
         (error, committed, snapshot) => {
-          if (error) console.error(error);
+          if (error) {
+            console.error("Transaction failed:", error);
+          }
         }
       );
     }
 
     /**
-     * Muestra el nombre del ganador en pantalla y bloquea la UI.
+     * Muestra el nombre del ganador en pantalla y bloquea toda la UI.
      */
     function showWinner(name) {
       quizScreenDiv.innerHTML = `
