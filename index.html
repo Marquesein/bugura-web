@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Bugura Web Quiz</title>
+  <title>Bugura Quiz</title>
   <style>
     /* ————————————————————————————————————————————————————
        Estilos básicos para modo oscuro y diseño responsive
@@ -23,6 +23,18 @@
     h1, h2, h3, h4 {
       color: #FFFFFF;
       margin-bottom: 12px;
+    }
+    /* Título principal en rojo 3D y centrado */
+    .title {
+      color: #FF0000;
+      text-align: center;
+      font-size: 2em;
+      margin-bottom: 24px;
+      /* Efecto 3D con sombras */
+      text-shadow: 
+        2px 2px 0px #000000, 
+        4px 4px 0px #000000, 
+        6px 6px 0px #000000;
     }
     input[type="text"] {
       width: 100%;
@@ -87,6 +99,13 @@
       button {
         flex: 1 1 48%;
       }
+      .title {
+        font-size: 1.5em;
+        text-shadow: 
+          1px 1px 0px #000000, 
+          2px 2px 0px #000000, 
+          3px 3px 0px #000000;
+      }
     }
   </style>
 </head>
@@ -94,7 +113,7 @@
   <div class="container">
     <!-- ——————— Pantalla “Join Room” ——————— -->
     <div id="join-screen">
-      <h1>Bugura Quiz (Web)</h1>
+      <h1 class="title">Bugura Quiz</h1>
       <input type="text" id="input-room-id" placeholder="ID de la sala" />
       <input type="text" id="input-username" placeholder="Nombre de usuario" />
 
@@ -110,6 +129,10 @@
       <ul id="users-list"></ul>
 
       <div id="countdown"></div>
+
+      <!-- ——————— Ranking general ——————— -->
+      <h3>Ranking General</h3>
+      <ul id="ranking-list"></ul>
     </div>
 
     <!-- ——————— Pantalla “Quiz” ——————— -->
@@ -176,6 +199,8 @@
     const quizScoresDiv    = document.getElementById("quiz-scores");
     const winnerDiv        = document.getElementById("winner");
 
+    const rankingListUl    = document.getElementById("ranking-list");
+
     // Banco de preguntas
     const questions = [
       {
@@ -207,6 +232,10 @@
 
     function clearUsersList() {
       usersListUl.innerHTML = "";
+    }
+
+    function clearRankingList() {
+      rankingListUl.innerHTML = "";
     }
 
     function createRoom() {
@@ -354,6 +383,8 @@
           // Comprueba si hay ganador (>=10)
           for (const [name, pts] of Object.entries(scores)) {
             if (pts >= 10) {
+              // Incrementar ranking antes de mostrar ganador
+              incrementRanking(name);
               showWinner(name);
               return;
             }
@@ -413,7 +444,7 @@
             scores[currentUserName] = (scores[currentUserName] || 0) + 1;
             console.log("Acertó:", currentUserName);
           } else {
-            console.log("Falló o no era su turno:");
+            console.log("Falló o no era su turno");
           }
 
           currentData.turnIndex = (turnIdx + 1) % players.length;
@@ -448,7 +479,59 @@
       }, 5000);
     }
 
-    // ———————— 5. Configurar eventos ————————
+    // ———————— 5. Funciones de Ranking ————————
+
+    /**
+     * Incrementa en 1 el contador de victorias en /ranking/{username}.
+     */
+    function incrementRanking(winnerName) {
+      console.log("incrementRanking()", winnerName);
+      const rankRef = ref(db, `ranking/${winnerName}`);
+      runTransaction(
+        rankRef,
+        (currentVal) => {
+          if (currentVal === null) {
+            return 1;
+          }
+          return currentVal + 1;
+        },
+        (error, committed, snapshot) => {
+          if (error) console.error("incrementRanking error:", error);
+        }
+      );
+    }
+
+    /**
+     * Escucha /ranking y actualiza la lista ordenada de mayor a menor.
+     */
+    function listenGlobalRanking() {
+      const rankingRef = ref(db, "ranking");
+      onValue(
+        rankingRef,
+        (snapshot) => {
+          const data = snapshot.val() || {};
+          // data = { usuario1: 3, usuario2: 5, ... }
+          const arr = Object.entries(data); // [ ["usuario1",3], ["usuario2",5], ... ]
+          // Ordena de mayor a menor según la segunda posición (wins)
+          arr.sort((a, b) => b[1] - a[1]);
+          console.log("Ranking actual:", arr);
+
+          // Construye el <ul> con items "Usuario: victorias"
+          clearRankingList();
+          arr.forEach(([user, wins]) => {
+            const li = document.createElement("li");
+            li.textContent = `${user}: ${wins} victorias`;
+            li.classList.add("list-item");
+            rankingListUl.appendChild(li);
+          });
+        },
+        (error) => {
+          console.error("listenGlobalRanking error:", error);
+        }
+      );
+    }
+
+    // ———————— 6. Configurar eventos y arrancar listeners ————————
 
     btnCreateRoom.addEventListener("click", createRoom);
     btnJoinRoom.addEventListener("click", () => {
@@ -463,11 +546,13 @@
     });
     btnResetAll.addEventListener("click", resetAllRooms);
 
-    // Al cargar, solo muestro “Join Room”
+    // Cuando cargue la página:
     window.addEventListener("load", () => {
       console.log("Página cargada, mostrando Join Room");
       joinScreenDiv.classList.remove("hidden");
       quizScreenDiv.classList.add("hidden");
+      // Empezamos a escuchar el ranking global desde el inicio
+      listenGlobalRanking();
     });
   </script>
 </body>
