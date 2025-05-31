@@ -94,7 +94,7 @@
        Firebase JS SDK (modular v9) desde CDN
        ———————————————————————————————————————————————————— -->
   <script type="module">
-    // Importamos solo los módulos que necesitamos de Firebase
+    // Importamos los módulos que necesitamos
     import { initializeApp }      from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
     import {
       getDatabase,
@@ -105,7 +105,7 @@
       remove
     } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
-    // ———————— 1. Configura tu Firebase ————————
+    // ———————— 1. Configuración de Firebase ————————
     const firebaseConfig = {
       apiKey: "AIzaSyDAYh1x8p1wbdNEM4nA33y9sWh2Q3MrLxo",
       authDomain: "bugura-cf2cd.firebaseapp.com",
@@ -144,7 +144,7 @@
     const quizScoresDiv    = document.getElementById("quiz-scores");
     const winnerDiv        = document.getElementById("winner");
 
-    // Banco de preguntas (idéntico al de Android)
+    // Banco de preguntas (igual que en Android)
     const questions = [
       {
         text: "¿Capital de Francia?",
@@ -163,11 +163,10 @@
       }
     ];
 
-    // ———————— 3. Funciones para pantalla "Join Room" ————————
+    // ———————— 3. Funciones para “Join Room” ————————
 
     /**
-     * Crea una nueva sala en Firebase con el roomId y añade al host.
-     * También inicializa el nodo "state" de la sala (scores, turnIndex, questionIndex).
+     * Crea una nueva sala en Firebase, inicializa “state” y añade al host.
      */
     function createRoom() {
       const roomId   = roomIdInput.value.trim();
@@ -179,54 +178,45 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
-      // Referencia a la sala
-      const roomRef = ref(db, `salas/${roomId}`);
-
-      // 1) Creamos "createdAt" para la sala
-      set(ref(db, `salas/${roomId}/createdAt`), ServerValue.TIMESTAMP)
-        .catch((err) => console.error(err));
-
-      // 2) Inicializamos el subnodo "state" con el estado por defecto
-      const initialState = {
+      // 1) Inicializamos el estado de la sala: scores con el host a 0,
+      //    turnIndex = 0, questionIndex = 0, started = false
+      set(ref(db, `salas/${roomId}/state`), {
         scores: { [userName]: 0 },
         turnIndex: 0,
         questionIndex: 0
-      };
-      set(ref(db, `salas/${roomId}/state`), initialState)
+      })
         .then(() => {
-          // 3) Ahora añadimos al host a "usuarios" y a "state/scores"
+          // 2) Añadimos al host también al subnodo “usuarios”
           joinRoom(roomId, userName);
+          showMessage(`Sala "${roomId}" creada. Esperando jugadores...`);
         })
         .catch((err) => {
           console.error(err);
-          // Aun así intentamos unir al host
-          joinRoom(roomId, userName);
+          showMessage("Error creando sala");
         });
 
-      // 4) Borrado automático de la sala tras 15 minutos
+      // 3) (Opcional) Borra la sala en 15 minutos
       clearTimeout(countdownInterval);
       setTimeout(() => {
-        remove(roomRef).catch((e) => console.error(e));
+        remove(ref(db, `salas/${roomId}`)).catch((e) => console.error(e));
       }, 15 * 60 * 1000);
     }
 
     /**
-     * Se une a la sala, añadiendo el nombre de usuario a "usuarios"
-     * y también inicializando su entrada en "state/scores" si aún no existe.
+     * Se une a la sala existente: añade a “usuarios” y crea su entrada en “state/scores”.
      */
     function joinRoom(roomId, userName) {
       currentRoomId   = roomId;
       currentUserName = userName;
 
-      // 1) Añadimos al usuario a `salas/{roomId}/usuarios/{userName} = true`
-      const userRef = ref(db, `salas/${roomId}/usuarios/${userName}`);
-      set(userRef, true)
+      // 1) Añade el usuario bajo /salas/{roomId}/usuarios/{userName} = true
+      set(ref(db, `salas/${roomId}/usuarios/${userName}`), true)
         .then(() => {
-          // 2) Aseguramos que exista su entrada en `state/scores/{userName} = 0`
-          const scoreRef = ref(db, `salas/${roomId}/state/scores/${userName}`);
-          set(scoreRef, 0).catch((e) => console.error(e));
-
-          showMessage(`Unido a sala "${roomId}"`);
+          // 2) Asegura la entrada en “state/scores” para este usuario si no existe
+          set(ref(db, `salas/${roomId}/state/scores/${userName}`), 0).catch((e) =>
+            console.error(e)
+          );
+          showMessage(`Unido a sala "${roomId}". Esperando más jugadores...`);
           listenUsers(roomId);
         })
         .catch((err) => {
@@ -236,11 +226,10 @@
     }
 
     /**
-     * Borra todas las salas (resetea el nodo "salas" en Firebase).
+     * Borra todas las salas (reset total).
      */
     function resetAllRooms() {
-      const rootRef = ref(db, "salas");
-      remove(rootRef)
+      remove(ref(db, "salas"))
         .then(() => {
           showMessage("Todas las salas reiniciadas");
           clearUsersList();
@@ -253,7 +242,7 @@
     }
 
     /**
-     * Muestra un mensaje en pantalla (durante 3s).
+     * Muestra un mensaje breve en pantalla (3 segundos).
      */
     function showMessage(txt) {
       messageDiv.textContent = txt;
@@ -263,15 +252,15 @@
     }
 
     /**
-     * Limpia la lista de usuarios que se muestra en el DOM.
+     * Limpia la lista de usuarios en el DOM.
      */
     function clearUsersList() {
       usersListUl.innerHTML = "";
     }
 
     /**
-     * Comienza a escuchar la lista de usuarios de la sala.
-     * Cuando haya 2 o más usuarios y aún no haya countdown, lo inicia.
+     * Empieza a escuchar /salas/{roomId}/usuarios. Cuando hay ≥2 jugadores,
+     * inicia la cuenta atrás de 15 segundos.
      */
     function listenUsers(roomId) {
       const usersRef = ref(db, `salas/${roomId}/usuarios`);
@@ -281,7 +270,7 @@
           const data = snapshot.val() || {};
           const list = Object.keys(data);
 
-          // Actualiza la UI
+          // Refresca la UI
           clearUsersList();
           list.forEach((u) => {
             const li = document.createElement("li");
@@ -290,7 +279,7 @@
             usersListUl.appendChild(li);
           });
 
-          // Si hay al menos 2 usuarios y no hay cuenta regresiva, la inicia
+          // Si hay al menos 2 usuarios y no hay cuenta regresiva activa, iniciar
           if (list.length >= 2 && !countdownInterval) {
             startCountdown();
           }
@@ -302,8 +291,7 @@
     }
 
     /**
-     * Inicia la cuenta regresiva de 15s y, al llegar a 0, marca la sala como "started"
-     * y pasa a la pantalla del quiz.
+     * Cuenta regresiva de 15s; al llegar a 0, marca “started = true” y muestra el quiz.
      */
     function startCountdown() {
       let c = 15;
@@ -317,19 +305,19 @@
           countdownInterval = null;
           countdownDiv.textContent = "";
           // Marca en Firebase que la sala ha empezado
-          const startRef = ref(db, `salas/${currentRoomId}/started`);
-          set(startRef, true).then(() => {
-            // Cambia a la pantalla de quiz
-            showQuizScreen();
-          });
+          set(ref(db, `salas/${currentRoomId}/started`), true)
+            .then(() => {
+              showQuizScreen();
+            })
+            .catch((e) => console.error(e));
         }
       }, 1000);
     }
 
-    // ———————— 4. Funciones para pantalla "Quiz" ————————
+    // ———————— 4. Funciones para pantalla “Quiz” ————————
 
     /**
-     * Muestra la pantalla de Quiz y configura el listener para el estado del juego.
+     * Cambia a la pantalla del quiz y empieza a escuchar /salas/{roomId}/state.
      */
     function showQuizScreen() {
       joinScreenDiv.classList.add("hidden");
@@ -338,8 +326,8 @@
     }
 
     /**
-     * Escucha el nodo "state" de la sala en Firebase y actualiza la UI del quiz.
-     * Detecta cuándo hay un ganador (10 puntos) y lo muestra.
+     * Escucha /salas/{roomId}/state en tiempo real y actualiza la UI.
+     * Si alguno llega a 10 puntos, muestra al ganador.
      */
     function listenGameState(roomId) {
       const stateRef = ref(db, `salas/${roomId}/state`);
@@ -349,12 +337,12 @@
           const val = snapshot.val();
           if (!val) return;
 
-          // Extrae información
+          // Extrae puntajes, turno e índice de pregunta
           const scores = val.scores || {};
           const turnIdx = val.turnIndex ?? 0;
           const qIdx    = val.questionIndex ?? 0;
 
-          // Detecta ganador
+          // 1) Comprobamos si hay ganador (≥10 puntos)
           for (const [name, pts] of Object.entries(scores)) {
             if (pts >= 10) {
               showWinner(name);
@@ -362,16 +350,16 @@
             }
           }
 
-          // Actualiza pregunta y opciones
+          // 2) Actualizamos la pregunta y opciones
           const pregunta = questions[qIdx];
           quizQuestionText.textContent = pregunta.text;
 
-          // Habilita/deshabilita botones según turno
-          const players = Object.keys(scores);
-          const currentTurnName = players[turnIdx] || "";
-          const isMyTurn       = currentTurnName === currentUserName;
+          // 3) Determinamos de quién es el turno
+          const players        = Object.keys(scores);
+          const currentTurn    = players[turnIdx] || "";
+          const isMyTurn       = currentTurn === currentUserName;
 
-          // Limpia opciones previas
+          // 4) Generamos botones de opciones (solo habilitados si es mi turno)
           quizOptionsDiv.innerHTML = "";
           pregunta.options.forEach((opt, i) => {
             const btn = document.createElement("button");
@@ -381,7 +369,7 @@
             quizOptionsDiv.appendChild(btn);
           });
 
-          // Muestra las puntuaciones
+          // 5) Mostramos los puntajes en pantalla
           quizScoresDiv.innerHTML = "";
           Object.entries(scores).forEach(([name, pts]) => {
             const p = document.createElement("p");
@@ -397,26 +385,23 @@
     }
 
     /**
-     * Envía la respuesta (índice de opción) a Firebase usando una transacción,
-     * actualizando scores, turnIndex y questionIndex.
-     *
-     * CORREGIDO para el SDK modular v9: el callback recibe `currentData` como objeto
-     * y retorna el nuevo objeto modificado.
+     * Envía la respuesta a Firebase mediante transacción:
+     * - Si es correcto, suma +1 a puntaje y avanza pregunta
+     * - Si es incorrecto, NO cambia puntaje ni pregunta
+     * - En ambos casos, avanza el turno siempre
      */
     function submitAnswer(selectedIdx) {
       const stateRef = ref(db, `salas/${currentRoomId}/state`);
       runTransaction(
         stateRef,
         (currentData) => {
-          // currentData es el objeto JavaScript actual de `state`
           if (currentData === null) return null;
-
           const scores = currentData.scores || {};
           const players = Object.keys(scores);
           const turnIdx = currentData.turnIndex ?? 0;
           const qIdx    = currentData.questionIndex ?? 0;
 
-          // Si es turno del usuario y respondió correctamente, suma punto
+          // Si es mi turno y respondí correctamente, sumo punto
           const pregunta = questions[qIdx];
           if (
             players[turnIdx] === currentUserName &&
@@ -425,10 +410,10 @@
             scores[currentUserName] = (scores[currentUserName] || 0) + 1;
           }
 
-          // Siempre avanza turno
+          // Avanzo siempre el turno
           currentData.turnIndex = (turnIdx + 1) % players.length;
 
-          // Si acertó, avanza pregunta
+          // Si acerté, avanzo pregunta
           if (
             players[turnIdx] === currentUserName &&
             selectedIdx === pregunta.correctIndex
@@ -436,22 +421,18 @@
             currentData.questionIndex = (qIdx + 1) % questions.length;
           }
 
-          // Actualiza el objeto `scores` en currentData
+          // Actualizo “scores” en el objeto
           currentData.scores = scores;
-
-          // Devuelve el objeto modificado para que Firebase lo escriba
           return currentData;
         },
         (error, committed, snapshot) => {
-          if (error) {
-            console.error("Transaction failed:", error);
-          }
+          if (error) console.error("Transaction error:", error);
         }
       );
     }
 
     /**
-     * Muestra el nombre del ganador en pantalla y bloquea toda la UI.
+     * Muestra al ganador y, tras 5s, recarga la página para volver a “Join Room”.
      */
     function showWinner(name) {
       quizScreenDiv.innerHTML = `
@@ -460,7 +441,6 @@
           <p>Volviendo al inicio en 5 segundos…</p>
         </div>
       `;
-      // Después de 5 segundos, recarga la página para volver a la pantalla de Join
       setTimeout(() => {
         window.location.reload();
       }, 5000);
@@ -469,10 +449,18 @@
     // ———————— 5. Configurar eventos ————————
 
     btnCreateRoom.addEventListener("click", createRoom);
-    btnJoinRoom.addEventListener("click", joinRoom);
+    btnJoinRoom.addEventListener("click", () => {
+      const roomId   = roomIdInput.value.trim();
+      const userName = userNameInput.value.trim();
+      if (!roomId || !userName) {
+        showMessage("Completa ambos campos");
+        return;
+      }
+      joinRoom(roomId, userName);
+    });
     btnResetAll.addEventListener("click", resetAllRooms);
 
-    // Al cargar la página, muestra solo la pantalla de Join
+    // Al cargar la página, se muestra solo “Join Room”
     window.addEventListener("load", () => {
       joinScreenDiv.classList.remove("hidden");
       quizScreenDiv.classList.add("hidden");
