@@ -89,383 +89,6 @@
       }
     }
   </style>
-
-  <!-- ————————————————————————————————————————————————————
-       Firebase JS SDK (modular v9) desde CDN
-       ———————————————————————————————————————————————————— -->
-  <script type="module">
-    // Importamos los módulos que necesitamos
-    import { initializeApp }      from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-    import {
-      getDatabase,
-      ref,
-      set,
-      onValue,
-      runTransaction,
-      remove
-    } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
-
-    // ———————— 1. Configuración de Firebase ————————
-    const firebaseConfig = {
-      apiKey: "AIzaSyDAYh1x8p1wbdNEM4nA33y9sWh2Q3MrLxo",
-      authDomain: "bugura-cf2cd.firebaseapp.com",
-      databaseURL: "https://bugura-cf2cd-default-rtdb.firebaseio.com",
-      projectId: "bugura-cf2cd",
-      storageBucket: "bugura-cf2cd.firebasestorage.app",
-      messagingSenderId: "170908399149",
-      appId: "1:170908399149:web:5e9ab4cf06e8079fe16aa4"
-    };
-
-    // Inicializa Firebase
-    const app = initializeApp(firebaseConfig);
-    const db  = getDatabase(app);
-
-    // ———————— 2. Variables de estado global ————————
-    let currentRoomId     = "";
-    let currentUserName   = "";
-    let countdownInterval = null;
-
-    // Referencias a elementos del DOM
-    const joinScreenDiv    = document.getElementById("join-screen");
-    const quizScreenDiv    = document.getElementById("quiz-screen");
-
-    const roomIdInput      = document.getElementById("input-room-id");
-    const userNameInput    = document.getElementById("input-username");
-    const btnCreateRoom    = document.getElementById("btn-create-room");
-    const btnJoinRoom      = document.getElementById("btn-join-room");
-    const btnResetAll      = document.getElementById("btn-reset-all");
-    const messageDiv       = document.getElementById("message");
-
-    const usersListUl      = document.getElementById("users-list");
-    const countdownDiv     = document.getElementById("countdown");
-
-    const quizQuestionText = document.getElementById("quiz-question");
-    const quizOptionsDiv   = document.getElementById("quiz-options");
-    const quizScoresDiv    = document.getElementById("quiz-scores");
-    const winnerDiv        = document.getElementById("winner");
-
-    // Banco de preguntas (igual que en Android)
-    const questions = [
-      {
-        text: "¿Capital de Francia?",
-        options: ["Londres", "Madrid", "París", "Berlín"],
-        correctIndex: 2
-      },
-      {
-        text: "¿5 + 7 = ?",
-        options: ["10", "12", "11", "14"],
-        correctIndex: 1
-      },
-      {
-        text: "¿Color del cielo?",
-        options: ["Verde", "Azul", "Rojo", "Amarillo"],
-        correctIndex: 1
-      }
-    ];
-
-    // ———————— 3. Funciones para “Join Room” ————————
-
-    /**
-     * Crea una nueva sala en Firebase, inicializa “state” y añade al host.
-     */
-    function createRoom() {
-      const roomId   = roomIdInput.value.trim();
-      const userName = userNameInput.value.trim();
-      if (!roomId || !userName) {
-        showMessage("Completa ambos campos");
-        return;
-      }
-      currentRoomId   = roomId;
-      currentUserName = userName;
-
-      // 1) Inicializamos el estado de la sala: scores con el host a 0,
-      //    turnIndex = 0, questionIndex = 0, started = false
-      set(ref(db, `salas/${roomId}/state`), {
-        scores: { [userName]: 0 },
-        turnIndex: 0,
-        questionIndex: 0
-      })
-        .then(() => {
-          // 2) Añadimos al host también al subnodo “usuarios”
-          joinRoom(roomId, userName);
-          showMessage(`Sala "${roomId}" creada. Esperando jugadores...`);
-        })
-        .catch((err) => {
-          console.error(err);
-          showMessage("Error creando sala");
-        });
-
-      // 3) (Opcional) Borra la sala en 15 minutos
-      clearTimeout(countdownInterval);
-      setTimeout(() => {
-        remove(ref(db, `salas/${roomId}`)).catch((e) => console.error(e));
-      }, 15 * 60 * 1000);
-    }
-
-    /**
-     * Se une a la sala existente: añade a “usuarios” y crea su entrada en “state/scores”.
-     */
-    function joinRoom(roomId, userName) {
-      currentRoomId   = roomId;
-      currentUserName = userName;
-
-      // 1) Añade el usuario bajo /salas/{roomId}/usuarios/{userName} = true
-      set(ref(db, `salas/${roomId}/usuarios/${userName}`), true)
-        .then(() => {
-          // 2) Asegura la entrada en “state/scores” para este usuario si no existe
-          set(ref(db, `salas/${roomId}/state/scores/${userName}`), 0).catch((e) =>
-            console.error(e)
-          );
-          showMessage(`Unido a sala "${roomId}". Esperando más jugadores...`);
-          listenUsers(roomId);
-        })
-        .catch((err) => {
-          console.error(err);
-          showMessage("Error al unirte");
-        });
-    }
-
-    /**
-     * Borra todas las salas (reset total).
-     */
-    function resetAllRooms() {
-      remove(ref(db, "salas"))
-        .then(() => {
-          showMessage("Todas las salas reiniciadas");
-          clearUsersList();
-          countdownDiv.textContent = "";
-        })
-        .catch((err) => {
-          console.error(err);
-          showMessage("Error reiniciando salas");
-        });
-    }
-
-    /**
-     * Muestra un mensaje breve en pantalla (3 segundos).
-     */
-    function showMessage(txt) {
-      messageDiv.textContent = txt;
-      setTimeout(() => {
-        messageDiv.textContent = "";
-      }, 3000);
-    }
-
-    /**
-     * Limpia la lista de usuarios en el DOM.
-     */
-    function clearUsersList() {
-      usersListUl.innerHTML = "";
-    }
-
-    /**
-     * Empieza a escuchar /salas/{roomId}/usuarios. Cuando hay ≥2 jugadores,
-     * inicia la cuenta atrás de 15 segundos.
-     */
-    function listenUsers(roomId) {
-      const usersRef = ref(db, `salas/${roomId}/usuarios`);
-      onValue(
-        usersRef,
-        (snapshot) => {
-          const data = snapshot.val() || {};
-          const list = Object.keys(data);
-
-          // Refresca la UI
-          clearUsersList();
-          list.forEach((u) => {
-            const li = document.createElement("li");
-            li.textContent = u;
-            li.classList.add("list-item");
-            usersListUl.appendChild(li);
-          });
-
-          // Si hay al menos 2 usuarios y no hay cuenta regresiva activa, iniciar
-          if (list.length >= 2 && !countdownInterval) {
-            startCountdown();
-          }
-        },
-        (error) => {
-          console.error(error);
-        }
-      );
-    }
-
-    /**
-     * Cuenta regresiva de 15s; al llegar a 0, marca “started = true” y muestra el quiz.
-     */
-    function startCountdown() {
-      let c = 15;
-      countdownDiv.textContent = `Comienza en ${c}s`;
-      countdownInterval = setInterval(() => {
-        c--;
-        if (c > 0) {
-          countdownDiv.textContent = `Comienza en ${c}s`;
-        } else {
-          clearInterval(countdownInterval);
-          countdownInterval = null;
-          countdownDiv.textContent = "";
-          // Marca en Firebase que la sala ha empezado
-          set(ref(db, `salas/${currentRoomId}/started`), true)
-            .then(() => {
-              showQuizScreen();
-            })
-            .catch((e) => console.error(e));
-        }
-      }, 1000);
-    }
-
-    // ———————— 4. Funciones para pantalla “Quiz” ————————
-
-    /**
-     * Cambia a la pantalla del quiz y empieza a escuchar /salas/{roomId}/state.
-     */
-    function showQuizScreen() {
-      joinScreenDiv.classList.add("hidden");
-      quizScreenDiv.classList.remove("hidden");
-      listenGameState(currentRoomId);
-    }
-
-    /**
-     * Escucha /salas/{roomId}/state en tiempo real y actualiza la UI.
-     * Si alguno llega a 10 puntos, muestra al ganador.
-     */
-    function listenGameState(roomId) {
-      const stateRef = ref(db, `salas/${roomId}/state`);
-      onValue(
-        stateRef,
-        (snapshot) => {
-          const val = snapshot.val();
-          if (!val) return;
-
-          // Extrae puntajes, turno e índice de pregunta
-          const scores = val.scores || {};
-          const turnIdx = val.turnIndex ?? 0;
-          const qIdx    = val.questionIndex ?? 0;
-
-          // 1) Comprobamos si hay ganador (≥10 puntos)
-          for (const [name, pts] of Object.entries(scores)) {
-            if (pts >= 10) {
-              showWinner(name);
-              return;
-            }
-          }
-
-          // 2) Actualizamos la pregunta y opciones
-          const pregunta = questions[qIdx];
-          quizQuestionText.textContent = pregunta.text;
-
-          // 3) Determinamos de quién es el turno
-          const players        = Object.keys(scores);
-          const currentTurn    = players[turnIdx] || "";
-          const isMyTurn       = currentTurn === currentUserName;
-
-          // 4) Generamos botones de opciones (solo habilitados si es mi turno)
-          quizOptionsDiv.innerHTML = "";
-          pregunta.options.forEach((opt, i) => {
-            const btn = document.createElement("button");
-            btn.textContent = opt;
-            btn.disabled   = !isMyTurn;
-            btn.onclick    = () => submitAnswer(i);
-            quizOptionsDiv.appendChild(btn);
-          });
-
-          // 5) Mostramos los puntajes en pantalla
-          quizScoresDiv.innerHTML = "";
-          Object.entries(scores).forEach(([name, pts]) => {
-            const p = document.createElement("p");
-            p.textContent = `${name}: ${pts} pts`;
-            p.classList.add("score-item");
-            quizScoresDiv.appendChild(p);
-          });
-        },
-        (error) => {
-          console.error(error);
-        }
-      );
-    }
-
-    /**
-     * Envía la respuesta a Firebase mediante transacción:
-     * - Si es correcto, suma +1 a puntaje y avanza pregunta
-     * - Si es incorrecto, NO cambia puntaje ni pregunta
-     * - En ambos casos, avanza el turno siempre
-     */
-    function submitAnswer(selectedIdx) {
-      const stateRef = ref(db, `salas/${currentRoomId}/state`);
-      runTransaction(
-        stateRef,
-        (currentData) => {
-          if (currentData === null) return null;
-          const scores = currentData.scores || {};
-          const players = Object.keys(scores);
-          const turnIdx = currentData.turnIndex ?? 0;
-          const qIdx    = currentData.questionIndex ?? 0;
-
-          // Si es mi turno y respondí correctamente, sumo punto
-          const pregunta = questions[qIdx];
-          if (
-            players[turnIdx] === currentUserName &&
-            selectedIdx === pregunta.correctIndex
-          ) {
-            scores[currentUserName] = (scores[currentUserName] || 0) + 1;
-          }
-
-          // Avanzo siempre el turno
-          currentData.turnIndex = (turnIdx + 1) % players.length;
-
-          // Si acerté, avanzo pregunta
-          if (
-            players[turnIdx] === currentUserName &&
-            selectedIdx === pregunta.correctIndex
-          ) {
-            currentData.questionIndex = (qIdx + 1) % questions.length;
-          }
-
-          // Actualizo “scores” en el objeto
-          currentData.scores = scores;
-          return currentData;
-        },
-        (error, committed, snapshot) => {
-          if (error) console.error("Transaction error:", error);
-        }
-      );
-    }
-
-    /**
-     * Muestra al ganador y, tras 5s, recarga la página para volver a “Join Room”.
-     */
-    function showWinner(name) {
-      quizScreenDiv.innerHTML = `
-        <div class="center">
-          <h2>¡El ganador es ${name}!</h2>
-          <p>Volviendo al inicio en 5 segundos…</p>
-        </div>
-      `;
-      setTimeout(() => {
-        window.location.reload();
-      }, 5000);
-    }
-
-    // ———————— 5. Configurar eventos ————————
-
-    btnCreateRoom.addEventListener("click", createRoom);
-    btnJoinRoom.addEventListener("click", () => {
-      const roomId   = roomIdInput.value.trim();
-      const userName = userNameInput.value.trim();
-      if (!roomId || !userName) {
-        showMessage("Completa ambos campos");
-        return;
-      }
-      joinRoom(roomId, userName);
-    });
-    btnResetAll.addEventListener("click", resetAllRooms);
-
-    // Al cargar la página, se muestra solo “Join Room”
-    window.addEventListener("load", () => {
-      joinScreenDiv.classList.remove("hidden");
-      quizScreenDiv.classList.add("hidden");
-    });
-  </script>
 </head>
 <body>
   <div class="container">
@@ -498,5 +121,330 @@
       <div id="winner"></div>
     </div>
   </div>
+
+  <!-- ————————————————————————————————————————————————————
+       Firebase JS SDK (modular v9) + lógica JS
+       ———————————————————————————————————————————————————— -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+    import {
+      getDatabase,
+      ref,
+      set,
+      onValue,
+      runTransaction,
+      remove
+    } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+
+    // ———————— 1. Configuración de Firebase ————————
+    const firebaseConfig = {
+      apiKey: "AIzaSyDAYh1x8p1wbdNEM4nA33y9sWh2Q3MrLxo",
+      authDomain: "bugura-cf2cd.firebaseapp.com",
+      databaseURL: "https://bugura-cf2cd-default-rtdb.firebaseio.com",
+      projectId: "bugura-cf2cd",
+      storageBucket: "bugura-cf2cd.firebasestorage.app",
+      messagingSenderId: "170908399149",
+      appId: "1:170908399149:web:5e9ab4cf06e8079fe16aa4"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db  = getDatabase(app);
+
+    // ———————— 2. Variables globales ————————
+    let currentRoomId     = "";
+    let currentUserName   = "";
+    let countdownInterval = null;
+
+    // Referencias a elementos del DOM
+    const joinScreenDiv    = document.getElementById("join-screen");
+    const quizScreenDiv    = document.getElementById("quiz-screen");
+
+    const roomIdInput      = document.getElementById("input-room-id");
+    const userNameInput    = document.getElementById("input-username");
+    const btnCreateRoom    = document.getElementById("btn-create-room");
+    const btnJoinRoom      = document.getElementById("btn-join-room");
+    const btnResetAll      = document.getElementById("btn-reset-all");
+    const messageDiv       = document.getElementById("message");
+
+    const usersListUl      = document.getElementById("users-list");
+    const countdownDiv     = document.getElementById("countdown");
+
+    const quizQuestionText = document.getElementById("quiz-question");
+    const quizOptionsDiv   = document.getElementById("quiz-options");
+    const quizScoresDiv    = document.getElementById("quiz-scores");
+    const winnerDiv        = document.getElementById("winner");
+
+    // Banco de preguntas
+    const questions = [
+      {
+        text: "¿Capital de Francia?",
+        options: ["Londres", "Madrid", "París", "Berlín"],
+        correctIndex: 2
+      },
+      {
+        text: "¿5 + 7 = ?",
+        options: ["10", "12", "11", "14"],
+        correctIndex: 1
+      },
+      {
+        text: "¿Color del cielo?",
+        options: ["Verde", "Azul", "Rojo", "Amarillo"],
+        correctIndex: 1
+      }
+    ];
+
+    // ———————— 3. Funciones de “Join Room” ————————
+
+    function showMessage(txt) {
+      messageDiv.textContent = txt;
+      setTimeout(() => {
+        messageDiv.textContent = "";
+      }, 3000);
+    }
+
+    function clearUsersList() {
+      usersListUl.innerHTML = "";
+    }
+
+    function createRoom() {
+      const roomId   = roomIdInput.value.trim();
+      const userName = userNameInput.value.trim();
+      if (!roomId || !userName) {
+        showMessage("Completa ambos campos");
+        return;
+      }
+      currentRoomId   = roomId;
+      currentUserName = userName;
+
+      // 1) Inicializa state (scores/turnIndex/questionIndex)
+      set(ref(db, `salas/${roomId}/state`), {
+        scores: { [userName]: 0 },
+        turnIndex: 0,
+        questionIndex: 0
+      })
+        .then(() => {
+          // 2) Añade al host a “usuarios”
+          joinRoom(roomId, userName);
+          showMessage(`Sala "${roomId}" creada. Esperando jugadores...`);
+        })
+        .catch((err) => {
+          console.error(err);
+          showMessage("Error creando sala");
+        });
+
+      // 3) Limpieza automática tras 15 min
+      clearTimeout(countdownInterval);
+      setTimeout(() => {
+        remove(ref(db, `salas/${roomId}`)).catch((e) => console.error(e));
+      }, 15 * 60 * 1000);
+    }
+
+    function joinRoom(roomId, userName) {
+      currentRoomId   = roomId;
+      currentUserName = userName;
+
+      // 1) Añade usuario a “usuarios”
+      set(ref(db, `salas/${roomId}/usuarios/${userName}`), true)
+        .then(() => {
+          // 2) Añade (o asegura) entrada en state/scores
+          set(ref(db, `salas/${roomId}/state/scores/${userName}`), 0).catch((e) =>
+            console.error(e)
+          );
+          showMessage(`Unido a sala "${roomId}". Esperando más jugadores...`);
+          listenUsers(roomId);
+        })
+        .catch((err) => {
+          console.error(err);
+          showMessage("Error al unirte");
+        });
+    }
+
+    function resetAllRooms() {
+      remove(ref(db, "salas"))
+        .then(() => {
+          showMessage("Todas las salas reiniciadas");
+          clearUsersList();
+          countdownDiv.textContent = "";
+        })
+        .catch((err) => {
+          console.error(err);
+          showMessage("Error reiniciando salas");
+        });
+    }
+
+    function listenUsers(roomId) {
+      const usersRef = ref(db, `salas/${roomId}/usuarios`);
+      onValue(
+        usersRef,
+        (snapshot) => {
+          const data = snapshot.val() || {};
+          const list = Object.keys(data);
+
+          clearUsersList();
+          list.forEach((u) => {
+            const li = document.createElement("li");
+            li.textContent = u;
+            li.classList.add("list-item");
+            usersListUl.appendChild(li);
+          });
+
+          if (list.length >= 2 && !countdownInterval) {
+            startCountdown();
+          }
+        },
+        (error) => {
+          console.error(error);
+        }
+      );
+    }
+
+    function startCountdown() {
+      let c = 15;
+      countdownDiv.textContent = `Comienza en ${c}s`;
+      countdownInterval = setInterval(() => {
+        c--;
+        if (c > 0) {
+          countdownDiv.textContent = `Comienza en ${c}s`;
+        } else {
+          clearInterval(countdownInterval);
+          countdownInterval = null;
+          countdownDiv.textContent = "";
+          set(ref(db, `salas/${currentRoomId}/started`), true)
+            .then(() => {
+              showQuizScreen();
+            })
+            .catch((e) => console.error(e));
+        }
+      }, 1000);
+    }
+
+    // ———————— 4. Funciones de “Quiz” ————————
+
+    function showQuizScreen() {
+      joinScreenDiv.classList.add("hidden");
+      quizScreenDiv.classList.remove("hidden");
+      listenGameState(currentRoomId);
+    }
+
+    function listenGameState(roomId) {
+      const stateRef = ref(db, `salas/${roomId}/state`);
+      onValue(
+        stateRef,
+        (snapshot) => {
+          const val = snapshot.val();
+          if (!val) return;
+
+          const scores = val.scores || {};
+          const turnIdx = val.turnIndex ?? 0;
+          const qIdx    = val.questionIndex ?? 0;
+
+          // Comprueba si hay ganador (>=10)
+          for (const [name, pts] of Object.entries(scores)) {
+            if (pts >= 10) {
+              showWinner(name);
+              return;
+            }
+          }
+
+          // Actualiza pregunta
+          const pregunta = questions[qIdx];
+          quizQuestionText.textContent = pregunta.text;
+
+          const players        = Object.keys(scores);
+          const currentTurn    = players[turnIdx] || "";
+          const isMyTurn       = currentTurn === currentUserName;
+
+          quizOptionsDiv.innerHTML = "";
+          pregunta.options.forEach((opt, i) => {
+            const btn = document.createElement("button");
+            btn.textContent = opt;
+            btn.disabled   = !isMyTurn;
+            btn.onclick    = () => submitAnswer(i);
+            quizOptionsDiv.appendChild(btn);
+          });
+
+          quizScoresDiv.innerHTML = "";
+          Object.entries(scores).forEach(([name, pts]) => {
+            const p = document.createElement("p");
+            p.textContent = `${name}: ${pts} pts`;
+            p.classList.add("score-item");
+            quizScoresDiv.appendChild(p);
+          });
+        },
+        (error) => {
+          console.error(error);
+        }
+      );
+    }
+
+    function submitAnswer(selectedIdx) {
+      const stateRef = ref(db, `salas/${currentRoomId}/state`);
+      runTransaction(
+        stateRef,
+        (currentData) => {
+          if (currentData === null) return null;
+          const scores = currentData.scores || {};
+          const players = Object.keys(scores);
+          const turnIdx = currentData.turnIndex ?? 0;
+          const qIdx    = currentData.questionIndex ?? 0;
+
+          const pregunta = questions[qIdx];
+          if (
+            players[turnIdx] === currentUserName &&
+            selectedIdx === pregunta.correctIndex
+          ) {
+            scores[currentUserName] = (scores[currentUserName] || 0) + 1;
+          }
+
+          currentData.turnIndex = (turnIdx + 1) % players.length;
+
+          if (
+            players[turnIdx] === currentUserName &&
+            selectedIdx === pregunta.correctIndex
+          ) {
+            currentData.questionIndex = (qIdx + 1) % questions.length;
+          }
+
+          currentData.scores = scores;
+          return currentData;
+        },
+        (error, committed, snapshot) => {
+          if (error) console.error("Transaction error:", error);
+        }
+      );
+    }
+
+    function showWinner(name) {
+      quizScreenDiv.innerHTML = `
+        <div class="center">
+          <h2>¡El ganador es ${name}!</h2>
+          <p>Volviendo al inicio en 5 segundos…</p>
+        </div>
+      `;
+      setTimeout(() => {
+        window.location.reload();
+      }, 5000);
+    }
+
+    // ———————— 5. Configurar eventos ————————
+
+    btnCreateRoom.addEventListener("click", createRoom);
+    btnJoinRoom.addEventListener("click", () => {
+      const roomId   = roomIdInput.value.trim();
+      const userName = userNameInput.value.trim();
+      if (!roomId || !userName) {
+        showMessage("Completa ambos campos");
+        return;
+      }
+      joinRoom(roomId, userName);
+    });
+    btnResetAll.addEventListener("click", resetAllRooms);
+
+    // Al cargar la página, mostrará solo “Join Room”
+    window.addEventListener("load", () => {
+      joinScreenDiv.classList.remove("hidden");
+      quizScreenDiv.classList.add("hidden");
+    });
+  </script>
 </body>
 </html>
