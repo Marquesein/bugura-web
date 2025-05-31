@@ -94,7 +94,7 @@
        Firebase JS SDK (modular v9) desde CDN
        ———————————————————————————————————————————————————— -->
   <script type="module">
-    // Importa solo los módulos que necesitamos de Firebase
+    // Importamos solo los módulos que necesitamos de Firebase
     import { initializeApp }      from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
     import {
       getDatabase,
@@ -167,6 +167,7 @@
 
     /**
      * Crea una nueva sala en Firebase con el roomId y añade al host.
+     * También inicializa el nodo "state" de la sala (scores, turnIndex, questionIndex).
      */
     function createRoom() {
       const roomId   = roomIdInput.value.trim();
@@ -180,42 +181,51 @@
 
       // Referencia a la sala
       const roomRef = ref(db, `salas/${roomId}`);
-      // Estructura inicial de la sala
-      set(roomRef, {
-        usuarios: { [userName]: true },
-        state: {
-          scores: { [userName]: 0 },
-          turnIndex: 0,
-          questionIndex: 0
-        },
-        started: false
-      })
+
+      // 1) Creamos "createdAt" para la sala
+      set(ref(db, `salas/${roomId}/createdAt`), ServerValue.TIMESTAMP)
+        .catch((err) => console.error(err));
+
+      // 2) Inicializamos el subnodo "state" con el estado por defecto
+      const initialState = {
+        scores: { [userName]: 0 },
+        turnIndex: 0,
+        questionIndex: 0
+      };
+      set(ref(db, `salas/${roomId}/state`), initialState)
         .then(() => {
-          showMessage(`Sala "${roomId}" creada y unido`);
-          listenUsers(roomId);
+          // 3) Ahora añadimos al host a "usuarios" y a "state/scores"
+          joinRoom(roomId, userName);
         })
         .catch((err) => {
           console.error(err);
-          showMessage("Error creando sala");
+          // Aun así intentamos unir al host
+          joinRoom(roomId, userName);
         });
+
+      // 4) Borrado automático de la sala tras 15 minutos
+      clearTimeout(countdownInterval);
+      setTimeout(() => {
+        remove(roomRef).catch((e) => console.error(e));
+      }, 15 * 60 * 1000);
     }
 
     /**
-     * Se une a una sala existente, añadiendo el nombre de usuario.
+     * Se une a la sala, añadiendo el nombre de usuario a "usuarios"
+     * y también inicializando su entrada en "state/scores" si aún no existe.
      */
-    function joinRoom() {
-      const roomId   = roomIdInput.value.trim();
-      const userName = userNameInput.value.trim();
-      if (!roomId || !userName) {
-        showMessage("Completa ambos campos");
-        return;
-      }
+    function joinRoom(roomId, userName) {
       currentRoomId   = roomId;
       currentUserName = userName;
 
+      // 1) Añadimos al usuario a `salas/{roomId}/usuarios/{userName} = true`
       const userRef = ref(db, `salas/${roomId}/usuarios/${userName}`);
       set(userRef, true)
         .then(() => {
+          // 2) Aseguramos que exista su entrada en `state/scores/{userName} = 0`
+          const scoreRef = ref(db, `salas/${roomId}/state/scores/${userName}`);
+          set(scoreRef, 0).catch((e) => console.error(e));
+
           showMessage(`Unido a sala "${roomId}"`);
           listenUsers(roomId);
         })
@@ -270,6 +280,7 @@
         (snapshot) => {
           const data = snapshot.val() || {};
           const list = Object.keys(data);
+
           // Actualiza la UI
           clearUsersList();
           list.forEach((u) => {
@@ -278,7 +289,8 @@
             li.classList.add("list-item");
             usersListUl.appendChild(li);
           });
-          // Si hay al menos 2 usuarios y no hay cuenta regresiva, inicia
+
+          // Si hay al menos 2 usuarios y no hay cuenta regresiva, la inicia
           if (list.length >= 2 && !countdownInterval) {
             startCountdown();
           }
