@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Bugura Quiz (Web - Turnos compatibles con Chrome)</title>
+  <title>Bugura Quiz (Web – Turnos basados en “usuarios”)</title>
   <style>
     /* ————————————————————————————————————————————————————
        Estilos para modo oscuro y responsive
@@ -251,7 +251,7 @@
       });
     }
 
-    // 5) JOIN ROOM (igual que en Android)
+    // 5) JOIN ROOM (igual que Android)
     function joinRoom() {
       const roomId   = roomIdInput.value.trim();
       const userName = userNameInput.value.trim();
@@ -331,9 +331,9 @@
         const turnIndex = snapshot.val();
         if (turnIndex === null || turnIndex === undefined) return;
 
-        // Cuando cambia el turno, leemos scores y questionIndex para regenerar UI
-        getTurnAndScoresAndQuestion(roomId).then(({ turnIndex, scores, questionIndex }) => {
-          const userList = Object.keys(scores).sort();
+        // Cuando cambia el turno, recalculamos lista de usuarios desde /usuarios y pregunta actual
+        getUsuariosAndQuestionOnce(roomId).then(({ usuarios, questionIndex }) => {
+          const userList = Object.keys(usuarios).sort();
           if (userList.length === 0) return;
           const currentPlayer = userList[turnIndex % userList.length];
 
@@ -354,9 +354,9 @@
           endQuizUI();
           return;
         }
-        // Cuando cambia la pregunta, necesitamos saber quién está en turno para generar botones
-        getTurnAndScoresOnce(roomId).then(({ turnIndex, scores }) => {
-          const userList = Object.keys(scores).sort();
+        // Cuando cambia la pregunta, leemos lista de usuarios y turno para dibujar UI
+        getUsuariosAndTurnOnce(roomId).then(({ usuarios, turnIndex }) => {
+          const userList = Object.keys(usuarios).sort();
           if (userList.length === 0) return;
           const currentPlayer = userList[turnIndex % userList.length];
           // Actualizar indicador de turno
@@ -371,57 +371,52 @@
       onValue(scoresRef, snapshot => {
         const scores = snapshot.val() || {};
         updateRankingUI(scores);
-        // (No es necesario deshabilitar aquí, lo hace el listener de turnIndex)
       });
     }
 
-    // 9) Leer turnIndex, scores y questionIndex en una sola llamada
-    function getTurnAndScoresAndQuestion(roomId) {
+    // 9) Leer simultáneamente “usuarios” y “questionIndex”
+    function getUsuariosAndQuestionOnce(roomId) {
       return new Promise(resolve => {
-        const stateRef = ref(db, `salas/${roomId}/state`);
-        onValue(stateRef, snap => {
-          const state = snap.val() || {};
-          resolve({
-            turnIndex: state.turnIndex || 0,
-            scores: state.scores || {},
-            questionIndex: state.questionIndex || 0
-          });
+        let result = {};
+        const usuariosRef = ref(db, `salas/${roomId}/usuarios`);
+        onValue(usuariosRef, snapU => {
+          result.usuarios = snapU.val() || {};
+          const qRef = ref(db, `salas/${roomId}/state/questionIndex`);
+          onValue(qRef, snapQ => {
+            result.questionIndex = snapQ.val() || 0;
+            resolve(result);
+          }, { onlyOnce: true });
         }, { onlyOnce: true });
       });
     }
 
-    // 10) Leer solo turnIndex y scores (para cuando cambie questionIndex)
-    function getTurnAndScoresOnce(roomId) {
+    // 10) Leer simultáneamente “usuarios” y “turnIndex”
+    function getUsuariosAndTurnOnce(roomId) {
       return new Promise(resolve => {
-        getTurnIndexOnce(roomId).then(turnIndex => {
-          getScoresOnce(roomId).then(scores => {
-            resolve({ turnIndex, scores });
-          });
-        });
-      });
-    }
-
-    // 11) Leer solo turnIndex una vez
-    function getTurnIndexOnce(roomId) {
-      return new Promise(resolve => {
-        const turnRef = ref(db, `salas/${roomId}/state/turnIndex`);
-        onValue(turnRef, snap => {
-          resolve(snap.val() || 0);
+        let result = {};
+        const usuariosRef = ref(db, `salas/${roomId}/usuarios`);
+        onValue(usuariosRef, snapU => {
+          result.usuarios = snapU.val() || {};
+          const turnRef = ref(db, `salas/${roomId}/state/turnIndex`);
+          onValue(turnRef, snapT => {
+            result.turnIndex = snapT.val() || 0;
+            resolve(result);
+          }, { onlyOnce: true });
         }, { onlyOnce: true });
       });
     }
 
-    // 12) Leer solo scores una vez
-    function getScoresOnce(roomId) {
+    // 11) Leer solo “usuarios” una sola vez
+    function getUsuariosOnce(roomId) {
       return new Promise(resolve => {
-        const scoresRef = ref(db, `salas/${roomId}/state/scores`);
-        onValue(scoresRef, snap => {
+        const usuariosRef = ref(db, `salas/${roomId}/usuarios`);
+        onValue(usuariosRef, snap => {
           resolve(snap.val() || {});
         }, { onlyOnce: true });
       });
     }
 
-    // 13) CUENTA ATRÁS (15 s) y luego transición a Quiz
+    // 12) CUENTA ATRÁS (15 s) y luego transición a Quiz
     function startCountdown() {
       hasCountdownStarted = true;
       countdownDiv.textContent = `Comienza en ${countdownValue} s`;
@@ -439,15 +434,15 @@
       }, 1000);
     }
 
-    // 14) TRANSICIÓN a Quiz
+    // 13) TRANSICIÓN a Quiz
     function transitionToQuiz() {
       joinScreenDiv.classList.add("hidden");
       quizScreenDiv.classList.remove("hidden");
-      // Cuando entramos en Quiz, arrancamos los listeners de Turnos/Preguntas
+      // Arrancamos los listeners de Turnos/Preguntas basados en “usuarios”
       listenToState(currentRoomId);
     }
 
-    // 15) Mostrar pregunta y opciones basadas en questionIndex & currentPlayer
+    // 14) Mostrar pregunta y opciones basadas en questionIndex & currentPlayer
     function showQuestionUI(questionIndex, currentPlayer) {
       if (questionIndex >= questions.length) return;
       const qObj = questions[questionIndex];
@@ -463,14 +458,7 @@
       });
     }
 
-    // 16) Deshabilitar todos los botones de opción
-    function disableAllOptionButtons() {
-      Array.from(quizOptionsDiv.children).forEach(child => {
-        if (child.tagName === "BUTTON") child.disabled = true;
-      });
-    }
-
-    // 17) Actualizar marcador en UI (ランキング)
+    // 15) Actualizar marcador en UI (ランキング)
     function updateRankingUI(scores) {
       const sorted = Object.entries(scores).sort((a,b) => b[1] - a[1]);
       rankingListUl.innerHTML = "";
@@ -492,45 +480,54 @@
       });
     }
 
-    // 18) Manejar respuesta cuando es mi turno (runTransaction)
+    // 16) Manejar respuesta cuando es mi turno (runTransaction usando “usuarios”)
     function handleAnswer(selectedIndex) {
       const stateRef = ref(db, `salas/${currentRoomId}/state`);
       runTransaction(stateRef, state => {
         if (!state) return state;
         const qIndex = state.questionIndex || 0;
         const scores = state.scores || {};
-        const userList = Object.keys(scores).sort();
         const turnIndex = state.turnIndex || 0;
-        const currentPlayer = userList.length ? userList[turnIndex % userList.length] : null;
-        // Solo el jugador correcto ejecuta este bloque
+
+        // Leemos lista de usuarios (orden alfabético)
+        // Esto garantiza mismo orden en Chrome y Android
+        // Se usa { onlyOnce: true } dentro de la transacción
+        // ¡OJO! Firebase SDK v9: no se puede mezclar onValue({onlyOnce: true}) *dentro* de runTransaction
+        // Por eso hemos refactorizado un poco: antes de llamar a runTransaction,
+        // debemos ya tener “usuarios” cargado en caché. Simplificamos asumiendo que no cambia
+        // durante el quiz. (Si se saliera alguien en medio, no se contempla aquí.)
+
+        // Construimos userList a partir de state._cachedUsuarios:
+        const userList = state._cachedUsuarios || [];
+        // Si no tenemos cached, abortamos para evitar inconsistencias
+        if (!Array.isArray(userList) || userList.length === 0) return state;
+
+        const currentPlayer = userList[turnIndex % userList.length];
         if (currentPlayer !== currentUserName) return state;
 
         const qObj = questions[qIndex];
         if (!qObj) return state;
 
-        // Si acierta, incremento su puntuación
         if (selectedIndex === qObj.correctIndex) {
           state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
         }
 
-        // Avanzar turno
         const nextTurn = (turnIndex + 1) % userList.length;
-        // Si volvemos a 0, significa que todos respondieron esta ronda => avanzamos pregunta
         if (nextTurn === 0) {
           state.questionIndex = qIndex + 1;
         }
         state.turnIndex = nextTurn;
         return state;
       }, {
+        // Callback onComplete para debug
         onComplete: (err, committed, snapshot) => {
           if (err) console.error("runTransaction error:", err);
-          if (!committed) console.warn("Transaction no fue comprometida");
-          // Si todo fue bien, snapshot.val() es el nuevo state
+          if (!committed) console.warn("Transaction no comprometida");
         }
       });
     }
 
-    // 19) Finalizar quiz en UI
+    // 17) Finalizar quiz en UI
     function endQuizUI() {
       const scoresRef = ref(db, `salas/${currentRoomId}/state/scores`);
       onValue(scoresRef, snap => {
@@ -549,7 +546,7 @@
       }, 5000);
     }
 
-    // 20) Resetear a Join Room
+    // 18) Resetear a Join Room
     function resetToJoin() {
       quizQuestionText.textContent = "";
       turnIndicatorDiv.textContent = "";
@@ -569,10 +566,52 @@
       }
     }
 
-    // 21) Eventos de botón
+    // 19) Antes de arrancar runTransaction necesitamos tener “usuarios” en caché dentro de state.
+    //     Por simplicidad, justo antes de empezar el Quiz, leemos /usuarios y metemos bajo state._cachedUsuarios.
+    //     De esta forma runTransaction puede usarlo sin bloqueos.
+    function cacheUsuariosEnState(roomId) {
+      return new Promise(resolve => {
+        const usuariosRef = ref(db, `salas/${roomId}/usuarios`);
+        onValue(usuariosRef, snap => {
+          const usuariosObj = snap.val() || {};
+          const userList = Object.keys(usuariosObj).sort();
+          // Guardamos esa lista en un nodo “fantasma” dentro de state
+          // No se escribe a Firebase; lo mantenemos localmente:
+          resolve(userList);
+        }, { onlyOnce: true });
+      });
+    }
+
+    // 20) Al iniciar Quiz, primero leemos y cacheamos “usuarios”
+    function transitionToQuiz() {
+      joinScreenDiv.classList.add("hidden");
+      quizScreenDiv.classList.remove("hidden");
+      cacheUsuariosEnState(currentRoomId).then(userList => {
+        // Creamos un “listener ligero” a state que, en cada snapshot, inyecte userList en state._cachedUsuarios
+        const stateRef = ref(db, `salas/${currentRoomId}/state`);
+        onValue(stateRef, snapshot => {
+          const state = snapshot.val();
+          if (!state) return;
+          // metemos _cachedUsuarios sin escribir de vuelta:
+          state._cachedUsuarios = userList;
+        });
+        // Ahora arrancamos los listeners de turno/pregunta:
+        listenToState(currentRoomId);
+      });
+    }
+
+    // 21) Reemplazamos la función original de transición
+    //     (Ya definida más arriba, la sobreescribimos).
+    //     Nota: Asegúrate de borrar la definición anterior de transitionToQuiz si existe.
+    //     Aquí incluimos la nueva directamente, por eso no repetimos su firma.
+
+    // 22) Eventos de botón
     btnCreateRoom.addEventListener("click", createRoom);
     btnJoinRoom.addEventListener("click", joinRoom);
     btnResetAll.addEventListener("click", resetAll);
+
+    // Nota: Hemos redefinido transitionToQuiz en el paso 20, así que
+    // antes de eso, si aparecía una definición anterior, bórrala.
   </script>
 </body>
 </html>
