@@ -1,167 +1,526 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>WebRTC Chat App</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bugura Quiz (Web – Turnos con userListGlobal)</title>
+  <style>
+    /* ————————————————————————————————————————————————————
+       Estilos para modo oscuro y responsive
+       ———————————————————————————————————————————————————— */
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: #FFFFFF;
+    }
+    .container {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    h1, h2, h3, h4 {
+      color: #FFFFFF;
+      margin-bottom: 12px;
+    }
+    .title {
+      color: #FF0000;
+      text-align: center;
+      font-size: 2em;
+      margin-bottom: 24px;
+      text-shadow:
+        2px 2px 0px #000000,
+        4px 4px 0px #000000,
+        6px 6px 0px #000000;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 12px;
+      background-color: #1E1E1E;
+      border: 1px solid #333333;
+      border-radius: 4px;
+      color: #FFFFFF;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #BB86FC;
+      border: none;
+      color: #000000;
+      padding: 10px 16px;
+      margin: 4px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:disabled {
+      background-color: #555555;
+      color: #AAAAAA;
+      cursor: default;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .message {
+      margin-top: 8px;
+      color: #CF6679;
+    }
+    .list-item {
+      margin-left: 16px;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .hidden {
+      display: none;
+    }
+    .center {
+      text-align: center;
+      margin-top: 24px;
+    }
+    .question-text {
+      font-size: 18px;
+      margin: 16px 0;
+    }
+    .score-list {
+      margin-top: 16px;
+    }
+    .score-item {
+      margin-bottom: 4px;
+    }
+    @media (max-width: 480px) {
+      .container {
+        padding: 8px;
+      }
+      button {
+        flex: 1 1 48%;
+      }
+      .title {
+        font-size: 1.5em;
+        text-shadow:
+          1px 1px 0px #000000,
+          2px 2px 0px #000000,
+          3px 3px 0px #000000;
+      }
+    }
+    .crown-icon {
+      width: 20px;
+      height: 20px;
+      fill: gold;
+    }
+  </style>
 </head>
 <body>
-  <h2>WebRTC Chat App</h2>
+  <div class="container">
+    <!-- ——— Pantalla “Join Room” ——— -->
+    <div id="join-screen">
+      <h1 class="title">Bugura Quiz</h1>
+      <input type="text" id="input-room-id" placeholder="ID de la sala" />
+      <input type="text" id="input-username" placeholder="Nombre de usuario" />
 
-  <div>
-    <input type="text" id="roomInput" placeholder="Enter room name" />
-    <button id="btnCreateRoom">Create Room</button>
-    <button id="btnJoinRoom">Join Room</button>
-    <button id="btnResetAll">Reset</button>
+      <div class="row">
+        <button id="btn-create-room">Crear Sala</button>
+        <button id="btn-join-room">Unirse a Sala</button>
+        <button id="btn-reset-all">Reiniciar Salas</button>
+      </div>
+
+      <div id="message" class="message"></div>
+
+      <h3>Usuarios en sala:</h3>
+      <ul id="users-list"></ul>
+
+      <div id="countdown" class="center"></div>
+
+      <h3>Ranking General</h3>
+      <ul id="ranking-list"></ul>
+    </div>
+
+    <!-- ——— Pantalla “Quiz” ——— -->
+    <div id="quiz-screen" class="hidden">
+      <h2 class="center">Quiz en Curso</h2>
+      <div id="quiz-question" class="question-text"></div>
+      <div id="turn-indicator" class="center"></div>
+      <div id="quiz-options" class="row"></div>
+      <div id="quiz-scores" class="score-list"></div>
+      <div id="winner" class="center"></div>
+    </div>
   </div>
 
-  <div>
-    <textarea id="messages" rows="10" cols="50" readonly></textarea>
-  </div>
-
-  <div>
-    <input type="text" id="messageInput" placeholder="Type message..." />
-    <button id="btnSend">Send</button>
-  </div>
-
+  <!-- Firebase SDK v9 + lógica JS -->
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.0.2/firebase-app.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
     import {
       getDatabase,
       ref,
       set,
-      get,
       onValue,
-      remove,
-    } from "https://www.gstatic.com/firebasejs/9.0.2/firebase-database.js";
+      runTransaction,
+      remove
+    } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
+    // 1) Configuración de Firebase
     const firebaseConfig = {
-      apiKey: "AIzaSyCAnxoKIWFn0vK1ETc0pclEF9FGSlvBfs",
-      authDomain: "webrtc-test-chat.firebaseapp.com",
-      databaseURL: "https://webrtc-test-chat-default-rtdb.firebaseio.com",
-      projectId: "webrtc-test-chat",
-      storageBucket: "webrtc-test-chat.appspot.com",
-      messagingSenderId: "539391976733",
-      appId: "1:539391976733:web:6c977d55ecedb504206cad",
+      apiKey: "AIzaSyDAYh1x8p1wbdNEM4nA33y9sWh2Q3MrLxo",
+      authDomain: "bugura-cf2cd.firebaseapp.com",
+      databaseURL: "https://bugura-cf2cd-default-rtdb.firebaseio.com",
+      projectId: "bugura-cf2cd",
+      storageBucket: "bugura-cf2cd.firebasestorage.app",
+      messagingSenderId: "170908399149",
+      appId: "1:170908399149:web:5e9ab4cf06e8079fe16aa4"
     };
-
     const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
+    const db  = getDatabase(app);
 
-    const roomInput = document.getElementById("roomInput");
-    const btnCreateRoom = document.getElementById("btnCreateRoom");
-    const btnJoinRoom = document.getElementById("btnJoinRoom");
-    const btnResetAll = document.getElementById("btnResetAll");
-    const btnSend = document.getElementById("btnSend");
-    const messageInput = document.getElementById("messageInput");
-    const messagesTextArea = document.getElementById("messages");
+    // 2) Variables globales
+    let currentRoomId       = "";
+    let currentUserName     = "";
+    let countdownTimer      = null;
+    let hasCountdownStarted = false;
+    let countdownValue      = 15;
+    let userListGlobal      = []; // Lista ordenada de usuarios
 
-    let roomName = "";
-    let peerConnection;
-    let dataChannel;
-    const configuration = {
-      iceServers: [
-        {
-          urls: "stun:stun.l.google.com:19302",
-        },
-      ],
-    };
+    // Referencias DOM
+    const joinScreenDiv    = document.getElementById("join-screen");
+    const quizScreenDiv    = document.getElementById("quiz-screen");
+    const roomIdInput      = document.getElementById("input-room-id");
+    const userNameInput    = document.getElementById("input-username");
+    const btnCreateRoom    = document.getElementById("btn-create-room");
+    const btnJoinRoom      = document.getElementById("btn-join-room");
+    const btnResetAll      = document.getElementById("btn-reset-all");
+    const messageDiv       = document.getElementById("message");
+    const usersListUl      = document.getElementById("users-list");
+    const countdownDiv     = document.getElementById("countdown");
+    const quizQuestionText = document.getElementById("quiz-question");
+    const turnIndicatorDiv = document.getElementById("turn-indicator");
+    const quizOptionsDiv   = document.getElementById("quiz-options");
+    const quizScoresDiv    = document.getElementById("quiz-scores");
+    const winnerDiv        = document.getElementById("winner");
+    const rankingListUl    = document.getElementById("ranking-list");
 
+    // Banco de preguntas (idéntico a Android)
+    const questions = [
+      { text: "¿Capital de Francia?", options: ["Londres","Madrid","París","Berlín"], correctIndex: 2 },
+      { text: "¿5 + 7 = ?",         options: ["10","12","11","14"],       correctIndex: 1 },
+      { text: "¿Color del cielo?",  options: ["Verde","Azul","Rojo","Amarillo"], correctIndex: 1 }
+    ];
+
+    // 3) Funciones auxiliares
+    function showMessage(txt) {
+      messageDiv.textContent = txt;
+      setTimeout(() => { messageDiv.textContent = ""; }, 3000);
+    }
+    function clearUsersList() {
+      usersListUl.innerHTML = "";
+    }
+    function clearRankingList() {
+      rankingListUl.innerHTML = "";
+    }
+
+    // 4) CREATE ROOM
     function createRoom() {
-      roomName = roomInput.value;
-      if (!roomName) return alert("Room name required");
+      const roomId   = roomIdInput.value.trim();
+      const userName = userNameInput.value.trim();
+      if (!roomId || !userName) {
+        showMessage("Completa ambos campos");
+        return;
+      }
+      currentRoomId   = roomId;
+      currentUserName = userName;
 
-      peerConnection = new RTCPeerConnection(configuration);
-      dataChannel = peerConnection.createDataChannel("chat");
-      dataChannel.onmessage = handleMessage;
+      set(ref(db, `salas/${roomId}/state`), {
+        turnIndex: 0,
+        questionIndex: 0,
+        scores: { [userName]: 0 }
+      })
+      .then(() => {
+        return set(ref(db, `salas/${roomId}/usuarios/${userName}`), true);
+      })
+      .then(() => {
+        listenToUsers(roomId);
+        showMessage(`Sala creada: ${roomId}`);
+      })
+      .catch(err => {
+        showMessage("Error al crear sala: " + err.message);
+      });
+    }
 
-      peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-          set(ref(db, roomName + "/callerICE"), JSON.stringify(event.candidate));
+    // 5) JOIN ROOM
+    function joinRoom() {
+      const roomId   = roomIdInput.value.trim();
+      const userName = userNameInput.value.trim();
+      if (!roomId || !userName) {
+        showMessage("Completa ambos campos");
+        return;
+      }
+      currentRoomId   = roomId;
+      currentUserName = userName;
+
+      set(ref(db, `salas/${roomId}/usuarios/${userName}`), true)
+      .then(() => {
+        return set(ref(db, `salas/${roomId}/state/scores/${userName}`), 0);
+      })
+      .then(() => {
+        listenToUsers(roomId);
+        showMessage(`Unido a la sala: ${roomId}`);
+      })
+      .catch(err => {
+        showMessage("Error al unirse: " + err.message);
+      });
+    }
+
+    // 6) RESET ALL
+    function resetAll() {
+      remove(ref(db, "salas"))
+      .then(() => {
+        showMessage("Todas las salas fueron reiniciadas");
+        clearUsersList();
+        clearRankingList();
+        countdownDiv.textContent = "";
+        hasCountdownStarted = false;
+        if (countdownTimer) {
+          clearInterval(countdownTimer);
+          countdownTimer = null;
         }
-      };
+      })
+      .catch(err => {
+        showMessage("Error al reiniciar: " + err.message);
+      });
+    }
 
-      peerConnection.createOffer()
-        .then((offer) => peerConnection.setLocalDescription(offer))
-        .then(() => {
-          set(ref(db, roomName + "/offer"), JSON.stringify(peerConnection.localDescription));
+    // 7) LISTENER a “salas/{roomId}/usuarios”
+    function listenToUsers(roomId) {
+      hasCountdownStarted = false;
+      countdownValue = 15;
+      countdownDiv.textContent = "";
+
+      const usuariosRef = ref(db, `salas/${roomId}/usuarios`);
+      onValue(usuariosRef, snapshot => {
+        const usersObj = snapshot.val() || {};
+        const userList = Object.keys(usersObj).sort();
+        userListGlobal = userList; // Actualizamos la lista global aquí
+
+        // Actualizar lista en UI
+        usersListUl.innerHTML = "";
+        userList.forEach(user => {
+          const li = document.createElement("li");
+          li.textContent = user;
+          usersListUl.appendChild(li);
         });
 
-      onValue(ref(db, roomName + "/answer"), (snapshot) => {
-        const answer = snapshot.val();
-        if (answer) {
-          peerConnection.setRemoteDescription(new RTCSessionDescription(JSON.parse(answer)));
-        }
-      });
-
-      onValue(ref(db, roomName + "/calleeICE"), (snapshot) => {
-        const ice = snapshot.val();
-        if (ice) {
-          peerConnection.addIceCandidate(new RTCIceCandidate(JSON.parse(ice)));
+        // Si hay ≥ 3 jugadores y aún no arrancó la cuenta atrás, iniciarla
+        if (userList.length >= 3 && !hasCountdownStarted) {
+          startCountdown();
         }
       });
     }
 
-    function joinRoom() {
-      roomName = roomInput.value;
-      if (!roomName) return alert("Room name required");
+    // 8) LISTENERS a “salas/{roomId}/state/turnIndex” y “salas/{roomId}/state/questionIndex” y “salas/{roomId}/state/scores”
+    function listenToState(roomId) {
+      // A) Listener para turnIndex
+      const turnRef = ref(db, `salas/${roomId}/state/turnIndex`);
+      onValue(turnRef, snapshot => {
+        const turnIndex = snapshot.val();
+        if (turnIndex === null || turnIndex === undefined) return;
 
-      peerConnection = new RTCPeerConnection(configuration);
-      peerConnection.ondatachannel = (event) => {
-        dataChannel = event.channel;
-        dataChannel.onmessage = handleMessage;
-      };
+        // Leemos pregunta actual una sola vez
+        const questionIndexRef = ref(db, `salas/${roomId}/state/questionIndex`);
+        onValue(questionIndexRef, qSnap => {
+          const questionIndex = qSnap.val() || 0;
+          if (questionIndex >= questions.length) {
+            endQuizUI();
+            return;
+          }
+          const userList = userListGlobal;
+          if (userList.length === 0) return;
+          const currentPlayer = userList[turnIndex % userList.length];
 
-      peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-          set(ref(db, roomName + "/calleeICE"), JSON.stringify(event.candidate));
-        }
-      };
+          // Actualizar indicador de turno
+          turnIndicatorDiv.textContent = `Turno de: ${currentPlayer}`;
 
-      get(ref(db, roomName + "/offer")).then((snapshot) => {
-        const offer = snapshot.val();
-        if (!offer) return alert("Offer not found");
-
-        peerConnection.setRemoteDescription(new RTCSessionDescription(JSON.parse(offer)))
-          .then(() => peerConnection.createAnswer())
-          .then((answer) => peerConnection.setLocalDescription(answer))
-          .then(() => {
-            set(ref(db, roomName + "/answer"), JSON.stringify(peerConnection.localDescription));
-          });
+          // Mostramos la pregunta actual con botones habilitados solo para quien corresponda
+          showQuestionUI(questionIndex, currentPlayer);
+        }, { onlyOnce: true });
       });
 
-      onValue(ref(db, roomName + "/callerICE"), (snapshot) => {
-        const ice = snapshot.val();
-        if (ice) {
-          peerConnection.addIceCandidate(new RTCIceCandidate(JSON.parse(ice)));
+      // B) Listener para questionIndex
+      const qRef = ref(db, `salas/${roomId}/state/questionIndex`);
+      onValue(qRef, snapshot => {
+        const questionIndex = snapshot.val();
+        if (questionIndex === null || questionIndex === undefined) return;
+        if (questionIndex >= questions.length) {
+          endQuizUI();
+          return;
+        }
+        // Leemos turno actual una sola vez
+        const turnIndexRef = ref(db, `salas/${roomId}/state/turnIndex`);
+        onValue(turnIndexRef, tSnap => {
+          const turnIndex = tSnap.val() || 0;
+          const userList = userListGlobal;
+          if (userList.length === 0) return;
+          const currentPlayer = userList[turnIndex % userList.length];
+
+          // Actualizar indicador de turno y mostrar nueva pregunta
+          turnIndicatorDiv.textContent = `Turno de: ${currentPlayer}`;
+          showQuestionUI(questionIndex, currentPlayer);
+        }, { onlyOnce: true });
+      });
+
+      // C) Listener para scores: solo actualiza ranking
+      const scoresRef = ref(db, `salas/${roomId}/state/scores`);
+      onValue(scoresRef, snapshot => {
+        const scores = snapshot.val() || {};
+        updateRankingUI(scores);
+      });
+    }
+
+    // 9) CUENTA ATRÁS (15 s) y luego transición a Quiz
+    function startCountdown() {
+      hasCountdownStarted = true;
+      countdownDiv.textContent = `Comienza en ${countdownValue} s`;
+      countdownTimer = setInterval(() => {
+        countdownValue--;
+        if (countdownValue > 0) {
+          countdownDiv.textContent = `Comienza en ${countdownValue} s`;
+        } else {
+          clearInterval(countdownTimer);
+          countdownDiv.textContent = "¡Arranca el juego!";
+          setTimeout(() => {
+            transitionToQuiz();
+          }, 500);
+        }
+      }, 1000);
+    }
+
+    // 10) TRANSICIÓN a Quiz
+    function transitionToQuiz() {
+      joinScreenDiv.classList.add("hidden");
+      quizScreenDiv.classList.remove("hidden");
+      // Arrancamos listeners de turno/pregunta
+      listenToState(currentRoomId);
+    }
+
+    // 11) Mostrar pregunta y opciones basadas en questionIndex & currentPlayer
+    function showQuestionUI(questionIndex, currentPlayer) {
+      if (questionIndex >= questions.length) return;
+      const qObj = questions[questionIndex];
+      quizQuestionText.textContent = qObj.text;
+      quizOptionsDiv.innerHTML = "";
+
+      qObj.options.forEach((opt, idx) => {
+        const btn = document.createElement("button");
+        btn.textContent = opt;
+        btn.disabled = (currentPlayer !== currentUserName);
+        btn.addEventListener("click", () => handleAnswer(idx));
+        quizOptionsDiv.appendChild(btn);
+      });
+    }
+
+    // 12) Actualizar ranking en UI
+    function updateRankingUI(scores) {
+      const sorted = Object.entries(scores).sort((a,b) => b[1] - a[1]);
+      rankingListUl.innerHTML = "";
+      sorted.forEach(([user, score], idx) => {
+        const li = document.createElement("li");
+        li.classList.add("list-item");
+        li.textContent = `${idx + 1}. ${user} — ${score} pts`;
+        if (idx === 0) {
+          const crownSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          crownSvg.setAttribute("viewBox", "0 0 24 24");
+          crownSvg.setAttribute("class", "crown-icon");
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", "M5 16L3 6l5 4 4-5 4 5 5-4-2 10H5z");
+          path.setAttribute("fill", "gold");
+          crownSvg.appendChild(path);
+          li.insertBefore(crownSvg, li.firstChild);
+        }
+        rankingListUl.appendChild(li);
+      });
+    }
+
+    // 13) Manejar respuesta cuando es mi turno (rotación con userListGlobal)
+    function handleAnswer(selectedIndex) {
+      const stateRef = ref(db, `salas/${currentRoomId}/state`);
+      runTransaction(stateRef, state => {
+        if (!state) return state;
+        const qIndex = state.questionIndex || 0;
+        const scores = state.scores || {};
+        const turnIndex = state.turnIndex || 0;
+        const userList = userListGlobal;
+        if (!Array.isArray(userList) || userList.length === 0) return state;
+
+        const currentPlayer = userList[turnIndex % userList.length];
+        if (currentPlayer !== currentUserName) return state;
+
+        const qObj = questions[qIndex];
+        if (!qObj) return state;
+
+        if (selectedIndex === qObj.correctIndex) {
+          state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
+        }
+
+        const nextTurn = (turnIndex + 1) % userList.length;
+        if (nextTurn === 0) {
+          state.questionIndex = qIndex + 1;
+        }
+        state.turnIndex = nextTurn;
+        return state;
+      }, {
+        onComplete: (err, committed, snapshot) => {
+          if (err) console.error("runTransaction error:", err);
+          if (!committed) console.warn("Transaction no fue comprometida");
         }
       });
     }
 
-    function handleMessage(event) {
-      messagesTextArea.value += "Peer: " + event.data + "\n";
+    // 14) Finalizar quiz en UI
+    function endQuizUI() {
+      const scoresRef = ref(db, `salas/${currentRoomId}/state/scores`);
+      onValue(scoresRef, snap => {
+        const finalScores = snap.val() || {};
+        const sorted = Object.entries(finalScores).sort((a,b) => b[1] - a[1]);
+        if (sorted.length) {
+          const [winnerName, winnerScore] = sorted[0];
+          winnerDiv.innerHTML = `<h3>¡Ganador: ${winnerName} con ${winnerScore} pts!</h3>`;
+        } else {
+          winnerDiv.textContent = "No hay participantes.";
+        }
+      }, { onlyOnce: true });
+
+      setTimeout(() => {
+        resetToJoin();
+      }, 5000);
     }
 
-    function sendMessage() {
-      const message = messageInput.value;
-      if (!message || !dataChannel) return;
-      dataChannel.send(message);
-      messagesTextArea.value += "Me: " + message + "\n";
-      messageInput.value = "";
-    }
+    // 15) Resetear a Join Room
+    function resetToJoin() {
+      quizQuestionText.textContent = "";
+      turnIndicatorDiv.textContent = "";
+      quizOptionsDiv.innerHTML = "";
+      quizScoresDiv.innerHTML = "";
+      winnerDiv.textContent = "";
 
-    function resetAll() {
-      if (roomName) {
-        remove(ref(db, roomName));
+      joinScreenDiv.classList.remove("hidden");
+      quizScreenDiv.classList.add("hidden");
+      clearUsersList();
+      clearRankingList();
+      countdownDiv.textContent = "";
+      hasCountdownStarted = false;
+      userListGlobal = [];
+      if (countdownTimer) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
       }
-      location.reload();
     }
 
-    // CONECTAR LOS BOTONES A LAS FUNCIONES
+    // 16) Eventos de botón
     btnCreateRoom.addEventListener("click", createRoom);
     btnJoinRoom.addEventListener("click", joinRoom);
     btnResetAll.addEventListener("click", resetAll);
-    btnSend.addEventListener("click", sendMessage);
   </script>
 </body>
 </html>
