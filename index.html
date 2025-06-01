@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Bugura Quiz (Web – Turnos basados en “usuarios”)</title>
+  <title>Bugura Quiz (Web – Turnos con userListGlobal)</title>
   <style>
     /* ————————————————————————————————————————————————————
        Estilos para modo oscuro y responsive
@@ -163,7 +163,7 @@
       remove
     } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
-    // 1) Configuración de Firebase: mismo proyecto que Android
+    // 1) Configuración de Firebase
     const firebaseConfig = {
       apiKey: "AIzaSyDAYh1x8p1wbdNEM4nA33y9sWh2Q3MrLxo",
       authDomain: "bugura-cf2cd.firebaseapp.com",
@@ -182,6 +182,7 @@
     let countdownTimer      = null;
     let hasCountdownStarted = false;
     let countdownValue      = 15;
+    let userListGlobal      = []; // Lista ordenada de usuarios
 
     // Referencias DOM
     const joinScreenDiv    = document.getElementById("join-screen");
@@ -220,7 +221,7 @@
       rankingListUl.innerHTML = "";
     }
 
-    // 4) CREATE ROOM (igual que en Android)
+    // 4) CREATE ROOM
     function createRoom() {
       const roomId   = roomIdInput.value.trim();
       const userName = userNameInput.value.trim();
@@ -231,18 +232,15 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
-      // 4.1) Inicializar “salas/{roomId}/state” exactamente
       set(ref(db, `salas/${roomId}/state`), {
         turnIndex: 0,
         questionIndex: 0,
         scores: { [userName]: 0 }
       })
       .then(() => {
-        // 4.2) Añadir “salas/{roomId}/usuarios/{userName} = true”
         return set(ref(db, `salas/${roomId}/usuarios/${userName}`), true);
       })
       .then(() => {
-        // 4.3) Empezar a escuchar usuarios en la sala
         listenToUsers(roomId);
         showMessage(`Sala creada: ${roomId}`);
       })
@@ -251,7 +249,7 @@
       });
     }
 
-    // 5) JOIN ROOM (igual que Android)
+    // 5) JOIN ROOM
     function joinRoom() {
       const roomId   = roomIdInput.value.trim();
       const userName = userNameInput.value.trim();
@@ -262,14 +260,11 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
-      // 5.1) Añadir “salas/{roomId}/usuarios/{userName} = true”
       set(ref(db, `salas/${roomId}/usuarios/${userName}`), true)
       .then(() => {
-        // 5.2) Asegurar “salas/{roomId}/state/scores/{userName} = 0”
         return set(ref(db, `salas/${roomId}/state/scores/${userName}`), 0);
       })
       .then(() => {
-        // 5.3) Empezar a escuchar usuarios en la sala
         listenToUsers(roomId);
         showMessage(`Unido a la sala: ${roomId}`);
       })
@@ -305,10 +300,11 @@
 
       const usuariosRef = ref(db, `salas/${roomId}/usuarios`);
       onValue(usuariosRef, snapshot => {
-        const users = snapshot.val() || {};
-        const userList = Object.keys(users);
+        const usersObj = snapshot.val() || {};
+        const userList = Object.keys(usersObj).sort();
+        userListGlobal = userList; // Actualizamos la lista global aquí
 
-        // Actualizar lista de usuarios
+        // Actualizar lista en UI
         usersListUl.innerHTML = "";
         userList.forEach(user => {
           const li = document.createElement("li");
@@ -316,14 +312,14 @@
           usersListUl.appendChild(li);
         });
 
-        // Si hay ≥ 3 jugadores y aún no arrancó cuenta atrás, iniciarla
+        // Si hay ≥ 3 jugadores y aún no arrancó la cuenta atrás, iniciarla
         if (userList.length >= 3 && !hasCountdownStarted) {
           startCountdown();
         }
       });
     }
 
-    // 8) LISTENERS a “salas/{roomId}/state/turnIndex”, “salas/{roomId}/state/questionIndex” y “salas/{roomId}/state/scores”
+    // 8) LISTENERS a “salas/{roomId}/state/turnIndex” y “salas/{roomId}/state/questionIndex” y “salas/{roomId}/state/scores”
     function listenToState(roomId) {
       // A) Listener para turnIndex
       const turnRef = ref(db, `salas/${roomId}/state/turnIndex`);
@@ -331,18 +327,24 @@
         const turnIndex = snapshot.val();
         if (turnIndex === null || turnIndex === undefined) return;
 
-        // Cuando cambia el turno, recalculamos lista de usuarios desde /usuarios y pregunta actual
-        getUsuariosAndQuestionOnce(roomId).then(({ usuarios, questionIndex }) => {
-          const userList = Object.keys(usuarios).sort();
+        // Leemos pregunta actual una sola vez
+        const questionIndexRef = ref(db, `salas/${roomId}/state/questionIndex`);
+        onValue(questionIndexRef, qSnap => {
+          const questionIndex = qSnap.val() || 0;
+          if (questionIndex >= questions.length) {
+            endQuizUI();
+            return;
+          }
+          const userList = userListGlobal;
           if (userList.length === 0) return;
           const currentPlayer = userList[turnIndex % userList.length];
 
           // Actualizar indicador de turno
           turnIndicatorDiv.textContent = `Turno de: ${currentPlayer}`;
 
-          // Regenerar botones para la pregunta actual, con estado correcto
+          // Mostramos la pregunta actual con botones habilitados solo para quien corresponda
           showQuestionUI(questionIndex, currentPlayer);
-        });
+        }, { onlyOnce: true });
       });
 
       // B) Listener para questionIndex
@@ -354,19 +356,21 @@
           endQuizUI();
           return;
         }
-        // Cuando cambia la pregunta, leemos lista de usuarios y turno para dibujar UI
-        getUsuariosAndTurnOnce(roomId).then(({ usuarios, turnIndex }) => {
-          const userList = Object.keys(usuarios).sort();
+        // Leemos turno actual una sola vez
+        const turnIndexRef = ref(db, `salas/${roomId}/state/turnIndex`);
+        onValue(turnIndexRef, tSnap => {
+          const turnIndex = tSnap.val() || 0;
+          const userList = userListGlobal;
           if (userList.length === 0) return;
           const currentPlayer = userList[turnIndex % userList.length];
-          // Actualizar indicador de turno
+
+          // Actualizar indicador de turno y mostrar nueva pregunta
           turnIndicatorDiv.textContent = `Turno de: ${currentPlayer}`;
-          // Generar botones para nueva pregunta
           showQuestionUI(questionIndex, currentPlayer);
-        });
+        }, { onlyOnce: true });
       });
 
-      // C) Listener para scores: actualiza ranking
+      // C) Listener para scores: solo actualiza ranking
       const scoresRef = ref(db, `salas/${roomId}/state/scores`);
       onValue(scoresRef, snapshot => {
         const scores = snapshot.val() || {};
@@ -374,49 +378,7 @@
       });
     }
 
-    // 9) Leer simultáneamente “usuarios” y “questionIndex”
-    function getUsuariosAndQuestionOnce(roomId) {
-      return new Promise(resolve => {
-        let result = {};
-        const usuariosRef = ref(db, `salas/${roomId}/usuarios`);
-        onValue(usuariosRef, snapU => {
-          result.usuarios = snapU.val() || {};
-          const qRef = ref(db, `salas/${roomId}/state/questionIndex`);
-          onValue(qRef, snapQ => {
-            result.questionIndex = snapQ.val() || 0;
-            resolve(result);
-          }, { onlyOnce: true });
-        }, { onlyOnce: true });
-      });
-    }
-
-    // 10) Leer simultáneamente “usuarios” y “turnIndex”
-    function getUsuariosAndTurnOnce(roomId) {
-      return new Promise(resolve => {
-        let result = {};
-        const usuariosRef = ref(db, `salas/${roomId}/usuarios`);
-        onValue(usuariosRef, snapU => {
-          result.usuarios = snapU.val() || {};
-          const turnRef = ref(db, `salas/${roomId}/state/turnIndex`);
-          onValue(turnRef, snapT => {
-            result.turnIndex = snapT.val() || 0;
-            resolve(result);
-          }, { onlyOnce: true });
-        }, { onlyOnce: true });
-      });
-    }
-
-    // 11) Leer solo “usuarios” una sola vez
-    function getUsuariosOnce(roomId) {
-      return new Promise(resolve => {
-        const usuariosRef = ref(db, `salas/${roomId}/usuarios`);
-        onValue(usuariosRef, snap => {
-          resolve(snap.val() || {});
-        }, { onlyOnce: true });
-      });
-    }
-
-    // 12) CUENTA ATRÁS (15 s) y luego transición a Quiz
+    // 9) CUENTA ATRÁS (15 s) y luego transición a Quiz
     function startCountdown() {
       hasCountdownStarted = true;
       countdownDiv.textContent = `Comienza en ${countdownValue} s`;
@@ -434,15 +396,15 @@
       }, 1000);
     }
 
-    // 13) TRANSICIÓN a Quiz
+    // 10) TRANSICIÓN a Quiz
     function transitionToQuiz() {
       joinScreenDiv.classList.add("hidden");
       quizScreenDiv.classList.remove("hidden");
-      // Arrancamos los listeners de Turnos/Preguntas basados en “usuarios”
+      // Arrancamos listeners de turno/pregunta
       listenToState(currentRoomId);
     }
 
-    // 14) Mostrar pregunta y opciones basadas en questionIndex & currentPlayer
+    // 11) Mostrar pregunta y opciones basadas en questionIndex & currentPlayer
     function showQuestionUI(questionIndex, currentPlayer) {
       if (questionIndex >= questions.length) return;
       const qObj = questions[questionIndex];
@@ -458,7 +420,7 @@
       });
     }
 
-    // 15) Actualizar marcador en UI (ランキング)
+    // 12) Actualizar ranking en UI
     function updateRankingUI(scores) {
       const sorted = Object.entries(scores).sort((a,b) => b[1] - a[1]);
       rankingListUl.innerHTML = "";
@@ -480,7 +442,7 @@
       });
     }
 
-    // 16) Manejar respuesta cuando es mi turno (runTransaction usando “usuarios”)
+    // 13) Manejar respuesta cuando es mi turno (rotación con userListGlobal)
     function handleAnswer(selectedIndex) {
       const stateRef = ref(db, `salas/${currentRoomId}/state`);
       runTransaction(stateRef, state => {
@@ -488,18 +450,7 @@
         const qIndex = state.questionIndex || 0;
         const scores = state.scores || {};
         const turnIndex = state.turnIndex || 0;
-
-        // Leemos lista de usuarios (orden alfabético)
-        // Esto garantiza mismo orden en Chrome y Android
-        // Se usa { onlyOnce: true } dentro de la transacción
-        // ¡OJO! Firebase SDK v9: no se puede mezclar onValue({onlyOnce: true}) *dentro* de runTransaction
-        // Por eso hemos refactorizado un poco: antes de llamar a runTransaction,
-        // debemos ya tener “usuarios” cargado en caché. Simplificamos asumiendo que no cambia
-        // durante el quiz. (Si se saliera alguien en medio, no se contempla aquí.)
-
-        // Construimos userList a partir de state._cachedUsuarios:
-        const userList = state._cachedUsuarios || [];
-        // Si no tenemos cached, abortamos para evitar inconsistencias
+        const userList = userListGlobal;
         if (!Array.isArray(userList) || userList.length === 0) return state;
 
         const currentPlayer = userList[turnIndex % userList.length];
@@ -519,15 +470,14 @@
         state.turnIndex = nextTurn;
         return state;
       }, {
-        // Callback onComplete para debug
         onComplete: (err, committed, snapshot) => {
           if (err) console.error("runTransaction error:", err);
-          if (!committed) console.warn("Transaction no comprometida");
+          if (!committed) console.warn("Transaction no fue comprometida");
         }
       });
     }
 
-    // 17) Finalizar quiz en UI
+    // 14) Finalizar quiz en UI
     function endQuizUI() {
       const scoresRef = ref(db, `salas/${currentRoomId}/state/scores`);
       onValue(scoresRef, snap => {
@@ -546,7 +496,7 @@
       }, 5000);
     }
 
-    // 18) Resetear a Join Room
+    // 15) Resetear a Join Room
     function resetToJoin() {
       quizQuestionText.textContent = "";
       turnIndicatorDiv.textContent = "";
@@ -560,58 +510,17 @@
       clearRankingList();
       countdownDiv.textContent = "";
       hasCountdownStarted = false;
+      userListGlobal = [];
       if (countdownTimer) {
         clearInterval(countdownTimer);
         countdownTimer = null;
       }
     }
 
-    // 19) Antes de arrancar runTransaction necesitamos tener “usuarios” en caché dentro de state.
-    //     Por simplicidad, justo antes de empezar el Quiz, leemos /usuarios y metemos bajo state._cachedUsuarios.
-    //     De esta forma runTransaction puede usarlo sin bloqueos.
-    function cacheUsuariosEnState(roomId) {
-      return new Promise(resolve => {
-        const usuariosRef = ref(db, `salas/${roomId}/usuarios`);
-        onValue(usuariosRef, snap => {
-          const usuariosObj = snap.val() || {};
-          const userList = Object.keys(usuariosObj).sort();
-          // Guardamos esa lista en un nodo “fantasma” dentro de state
-          // No se escribe a Firebase; lo mantenemos localmente:
-          resolve(userList);
-        }, { onlyOnce: true });
-      });
-    }
-
-    // 20) Al iniciar Quiz, primero leemos y cacheamos “usuarios”
-    function transitionToQuiz() {
-      joinScreenDiv.classList.add("hidden");
-      quizScreenDiv.classList.remove("hidden");
-      cacheUsuariosEnState(currentRoomId).then(userList => {
-        // Creamos un “listener ligero” a state que, en cada snapshot, inyecte userList en state._cachedUsuarios
-        const stateRef = ref(db, `salas/${currentRoomId}/state`);
-        onValue(stateRef, snapshot => {
-          const state = snapshot.val();
-          if (!state) return;
-          // metemos _cachedUsuarios sin escribir de vuelta:
-          state._cachedUsuarios = userList;
-        });
-        // Ahora arrancamos los listeners de turno/pregunta:
-        listenToState(currentRoomId);
-      });
-    }
-
-    // 21) Reemplazamos la función original de transición
-    //     (Ya definida más arriba, la sobreescribimos).
-    //     Nota: Asegúrate de borrar la definición anterior de transitionToQuiz si existe.
-    //     Aquí incluimos la nueva directamente, por eso no repetimos su firma.
-
-    // 22) Eventos de botón
+    // 16) Eventos de botón
     btnCreateRoom.addEventListener("click", createRoom);
     btnJoinRoom.addEventListener("click", joinRoom);
     btnResetAll.addEventListener("click", resetAll);
-
-    // Nota: Hemos redefinido transitionToQuiz en el paso 20, así que
-    // antes de eso, si aparecía una definición anterior, bórrala.
   </script>
 </body>
 </html>
