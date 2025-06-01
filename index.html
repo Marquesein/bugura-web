@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Quiz en Tiempo Real</title>
+  <title>Realtime Quiz</title>
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
     import {
@@ -55,17 +55,17 @@
 
     let roomId = "sala1";
     let username = "";
-    let userListGlobal = [];
-    let hasCountdownStarted = false;
+    let userList = [];
+    let hasStarted = false;
 
     const appDiv = document.getElementById("app");
 
     function joinRoom() {
       username = document.getElementById("username").value;
-      if (!username) return alert("Ingrese un nombre de usuario");
+      if (!username) return;
 
-      const userRef = ref(db, `salas/${roomId}/users`);
-      push(userRef, username).then(() => {
+      const usersRef = ref(db, `salas/${roomId}/users`);
+      push(usersRef, username).then(() => {
         listenToUsers(roomId);
         showWaitingRoom();
       });
@@ -74,37 +74,19 @@
     function listenToUsers(roomId) {
       const usersRef = ref(db, `salas/${roomId}/users`);
       onValue(usersRef, (snapshot) => {
-        const userList = Object.values(snapshot.val() || {});
-        userListGlobal = userList;
+        userList = Object.values(snapshot.val() || {});
+        updateUserListUI(userList);
 
-        const usersDiv = document.getElementById("users");
-        usersDiv.innerHTML = "<h3>Jugadores en la sala:</h3><ul>" +
-          userList.map(user => `<li>${user}</li>`).join("") + "</ul>";
-
-        if (userList.length >= 3 && !hasCountdownStarted) {
-          hasCountdownStarted = true;
+        if (userList.length >= 3 && !hasStarted) {
+          hasStarted = true;
           startCountdown();
         }
       });
     }
 
-    function startCountdown() {
-      const countdownDiv = document.createElement("div");
-      countdownDiv.id = "countdown";
-      appDiv.appendChild(countdownDiv);
-
-      let counter = 5;
-      countdownDiv.innerText = `El juego empieza en ${counter}...`;
-
-      const interval = setInterval(() => {
-        counter--;
-        if (counter > 0) {
-          countdownDiv.innerText = `El juego empieza en ${counter}...`;
-        } else {
-          clearInterval(interval);
-          transitionToQuiz();
-        }
-      }, 1000);
+    function updateUserListUI(users) {
+      const usersDiv = document.getElementById("users");
+      usersDiv.innerHTML = "<h3>Jugadores:</h3><ul>" + users.map(u => `<li>${u}</li>`).join("") + "</ul>";
     }
 
     function showWaitingRoom() {
@@ -114,87 +96,109 @@
       `;
     }
 
-    function transitionToQuiz() {
+    function startCountdown() {
+      const countdownDiv = document.createElement("div");
+      countdownDiv.id = "countdown";
+      appDiv.appendChild(countdownDiv);
+
+      let seconds = 5;
+      countdownDiv.innerText = `El juego empieza en ${seconds}...`;
+
+      const interval = setInterval(() => {
+        seconds--;
+        countdownDiv.innerText = `El juego empieza en ${seconds}...`;
+        if (seconds === 0) {
+          clearInterval(interval);
+          launchGame();
+        }
+      }, 1000);
+    }
+
+    function launchGame() {
+      appDiv.innerHTML = `
+        <h2>¡Comienza el juego!</h2>
+        <div id="turn-indicator"></div>
+        <div id="question-container"></div>
+        <div id="ranking"></div>
+      `;
+
       const stateRef = ref(db, `salas/${roomId}/state`);
       set(stateRef, {
         questionIndex: 0,
         turnIndex: 0,
         scores: {},
       });
-      listenToState(roomId);
+
+      listenToState();
     }
 
-    function listenToState(roomId) {
+    function listenToState() {
       const stateRef = ref(db, `salas/${roomId}/state`);
-      onValue(stateRef, snapshot => {
+      onValue(stateRef, (snapshot) => {
         const state = snapshot.val();
         if (!state) return;
 
-        const turnIndex = state.turnIndex ?? 0;
-        const questionIndex = state.questionIndex ?? 0;
-
+        const { questionIndex, turnIndex, scores } = state;
         if (questionIndex >= questions.length) {
-          endQuizUI();
+          showFinalScores(scores);
           return;
         }
 
-        const currentPlayer = userListGlobal[turnIndex % userListGlobal.length];
+        const currentPlayer = userList[turnIndex % userList.length];
         document.getElementById("turn-indicator").innerText = `Turno de: ${currentPlayer}`;
-        showQuestionUI(questionIndex, currentPlayer);
-        updateRankingUI(state.scores || {});
+        renderQuestion(questionIndex, currentPlayer);
+        renderRanking(scores);
       });
     }
 
-    function showQuestionUI(questionIndex, currentPlayer) {
-      const questionData = questions[questionIndex];
-      if (!questionData) return;
+    function renderQuestion(index, currentPlayer) {
+      const question = questions[index];
+      if (!question) return;
 
-      let html = `
-        <h2>${questionData.question}</h2>
+      const container = document.getElementById("question-container");
+      container.innerHTML = `
+        <h3>${question.question}</h3>
         <div id="answers">
-          ${questionData.answers.map((ans, idx) => `<button data-idx="${idx}">${ans}</button>`).join("")}
+          ${question.answers.map((ans, i) => `<button data-index="${i}">${ans}</button>`).join("")}
         </div>
       `;
-
-      document.getElementById("question-container").innerHTML = html;
 
       document.querySelectorAll("#answers button").forEach(btn => {
         btn.onclick = () => {
           if (username !== currentPlayer) {
-            alert("No es tu turno.");
+            alert("Esperá tu turno.");
             return;
           }
 
-          const answerIndex = parseInt(btn.dataset.idx);
-          const isCorrect = answerIndex === questionData.correct;
+          const selectedIndex = parseInt(btn.dataset.index);
+          const isCorrect = selectedIndex === question.correct;
 
-          get(ref(db, `salas/${roomId}/state`)).then(snapshot => {
-            const state = snapshot.val();
+          get(ref(db, `salas/${roomId}/state`)).then((snap) => {
+            const state = snap.val();
             if (!state) return;
 
-            const newScores = state.scores || {};
-            const currentScore = newScores[username] || 0;
-            newScores[username] = isCorrect ? currentScore + 1 : currentScore;
+            const scores = state.scores || {};
+            scores[username] = (scores[username] || 0) + (isCorrect ? 1 : 0);
 
             const nextTurn = state.turnIndex + 1;
-            const nextQuestion = nextTurn % userListGlobal.length === 0
+            const nextQuestion = nextTurn % userList.length === 0
               ? state.questionIndex + 1
               : state.questionIndex;
 
             update(ref(db, `salas/${roomId}/state`), {
-              scores: newScores,
               turnIndex: nextTurn,
               questionIndex: nextQuestion,
+              scores: scores
             });
           });
         };
       });
     }
 
-    function updateRankingUI(scores) {
-      const rankingDiv = document.getElementById("ranking");
-      const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
-      rankingDiv.innerHTML = `
+    function renderRanking(scores) {
+      const ranking = document.getElementById("ranking");
+      const sorted = Object.entries(scores || {}).sort((a, b) => b[1] - a[1]);
+      ranking.innerHTML = `
         <h3>Ranking</h3>
         <ul>
           ${sorted.map(([user, score]) => `<li>${user}: ${score}</li>`).join("")}
@@ -202,22 +206,19 @@
       `;
     }
 
-    function endQuizUI() {
-      appDiv.innerHTML = "<h2>¡Juego terminado!</h2><div id='ranking'></div>";
-      get(ref(db, `salas/${roomId}/state/scores`)).then(snapshot => {
-        const scores = snapshot.val() || {};
-        updateRankingUI(scores);
-      });
+    function showFinalScores(scores) {
+      appDiv.innerHTML = `
+        <h2>Juego terminado</h2>
+        <div id="ranking"></div>
+      `;
+      renderRanking(scores);
     }
 
-    // Pantalla inicial
+    // UI inicial
     appDiv.innerHTML = `
       <h1>Juego de Preguntas</h1>
-      <input type="text" id="username" placeholder="Tu nombre"/>
+      <input type="text" id="username" placeholder="Tu nombre" />
       <button onclick="joinRoom()">Unirse</button>
-      <div id="turn-indicator"></div>
-      <div id="question-container"></div>
-      <div id="ranking"></div>
     `;
 
     window.joinRoom = joinRoom;
