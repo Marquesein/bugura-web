@@ -3,118 +3,308 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Quiz Multiplayer</title>
+  <title>Bugura Quiz (Web – Turnos con userListGlobal)</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    #question { margin-top: 20px; }
-    #answers button { display: block; margin: 8px 0; }
-    #countdown { font-size: 24px; color: red; margin-top: 10px; }
-    #ranking { margin-top: 20px; }
-    #usersList { margin-top: 10px; }
+    /* ————————————————————————————————————————————————————
+       Estilos para modo oscuro y responsive
+       ———————————————————————————————————————————————————— */
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: #FFFFFF;
+    }
+    .container {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    h1, h2, h3, h4 {
+      color: #FFFFFF;
+      margin-bottom: 12px;
+    }
+    .title {
+      color: #FF0000;
+      text-align: center;
+      font-size: 2em;
+      margin-bottom: 24px;
+      text-shadow:
+        2px 2px 0px #000000,
+        4px 4px 0px #000000,
+        6px 6px 0px #000000;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 12px;
+      background-color: #1E1E1E;
+      border: 1px solid #333333;
+      border-radius: 4px;
+      color: #FFFFFF;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #BB86FC;
+      border: none;
+      color: #000000;
+      padding: 10px 16px;
+      margin: 4px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:disabled {
+      background-color: #555555;
+      color: #AAAAAA;
+      cursor: default;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .message {
+      margin-top: 8px;
+      color: #CF6679;
+    }
+    .list-item {
+      margin-left: 16px;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .hidden {
+      display: none;
+    }
+    .center {
+      text-align: center;
+      margin-top: 24px;
+    }
+    .question-text {
+      font-size: 18px;
+      margin: 16px 0;
+    }
+    .score-list {
+      margin-top: 16px;
+    }
+    .score-item {
+      margin-bottom: 4px;
+    }
+    @media (max-width: 480px) {
+      .container {
+        padding: 8px;
+      }
+      button {
+        flex: 1 1 48%;
+      }
+      .title {
+        font-size: 1.5em;
+        text-shadow:
+          1px 1px 0px #000000,
+          2px 2px 0px #000000,
+          3px 3px 0px #000000;
+      }
+    }
+    .crown-icon {
+      width: 20px;
+      height: 20px;
+      fill: gold;
+    }
   </style>
 </head>
 <body>
+  <div class="container">
+    <!-- ——— Pantalla “Join Room” ——— -->
+    <div id="join-screen">
+      <h1 class="title">Bugura Quiz</h1>
+      <input type="text" id="input-room-id" placeholder="ID de la sala" />
+      <input type="text" id="input-username" placeholder="Nombre de usuario" />
 
-  <h1>Quiz Multiplayer</h1>
-  <div>
-    <label>Tu nombre: <input id="usernameInput" type="text" /></label>
-    <button id="joinBtn">Unirse a la sala</button>
+      <div class="row">
+        <button id="btn-create-room">Crear Sala</button>
+        <button id="btn-join-room">Unirse a Sala</button>
+        <button id="btn-reset-all">Reiniciar Salas</button>
+      </div>
+
+      <div id="message" class="message"></div>
+
+      <h3>Usuarios en sala:</h3>
+      <ul id="users-list"></ul>
+
+      <div id="countdown" class="center"></div>
+
+      <h3>Ranking General</h3>
+      <ul id="ranking-list"></ul>
+    </div>
+
+    <!-- ——— Pantalla “Quiz” ——— -->
+    <div id="quiz-screen" class="hidden">
+      <h2 class="center">Quiz en Curso</h2>
+      <div id="quiz-question" class="question-text"></div>
+      <div id="turn-indicator" class="center"></div>
+      <div id="quiz-options" class="row"></div>
+      <div id="quiz-scores" class="score-list"></div>
+      <div id="winner" class="center"></div>
+    </div>
   </div>
 
-  <div id="gameArea" style="display:none;">
-    <h2>Jugadores en sala:</h2>
-    <ul id="usersList"></ul>
-
-    <div id="turnIndicator"></div>
-
-    <div id="question"></div>
-    <div id="answers"></div>
-    <div id="countdown"></div>
-
-    <div id="ranking"></div>
-  </div>
-
+  <!-- Firebase SDK v9 + lógica JS -->
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
-    import { getDatabase, ref, set, onValue, runTransaction } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+    import {
+      getDatabase,
+      ref,
+      set,
+      onValue,
+      runTransaction,
+      remove
+    } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
-    // Config Firebase (poné la tuya)
+    // 1) Configuración de Firebase
     const firebaseConfig = {
-      apiKey: "TU_API_KEY",
-      authDomain: "TU_AUTH_DOMAIN",
-      databaseURL: "TU_DATABASE_URL",
-      projectId: "TU_PROJECT_ID",
-      storageBucket: "TU_STORAGE_BUCKET",
-      messagingSenderId: "TU_MESSAGING_SENDER_ID",
-      appId: "TU_APP_ID"
+      apiKey: "AIzaSyDAYh1x8p1wbdNEM4nA33y9sWh2Q3MrLxo",
+      authDomain: "bugura-cf2cd.firebaseapp.com",
+      databaseURL: "https://bugura-cf2cd-default-rtdb.firebaseio.com",
+      projectId: "bugura-cf2cd",
+      storageBucket: "bugura-cf2cd.firebasestorage.app",
+      messagingSenderId: "170908399149",
+      appId: "1:170908399149:web:5e9ab4cf06e8079fe16aa4"
     };
     const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
+    const db  = getDatabase(app);
 
-    // Variables globales
-    let currentUserName = "";
-    let currentRoomId = "sala1";
+    // 2) Variables globales
+    let currentRoomId       = "";
+    let currentUserName     = "";
+    let countdownTimer      = null;
     let hasCountdownStarted = false;
-    let countdownValue = 15;
-    let countdownTimer;
+    let countdownValue      = 15;
+    let userListGlobal      = []; // Lista ordenada de usuarios
 
+    // Referencias DOM
+    const joinScreenDiv    = document.getElementById("join-screen");
+    const quizScreenDiv    = document.getElementById("quiz-screen");
+    const roomIdInput      = document.getElementById("input-room-id");
+    const userNameInput    = document.getElementById("input-username");
+    const btnCreateRoom    = document.getElementById("btn-create-room");
+    const btnJoinRoom      = document.getElementById("btn-join-room");
+    const btnResetAll      = document.getElementById("btn-reset-all");
+    const messageDiv       = document.getElementById("message");
+    const usersListUl      = document.getElementById("users-list");
+    const countdownDiv     = document.getElementById("countdown");
+    const quizQuestionText = document.getElementById("quiz-question");
+    const turnIndicatorDiv = document.getElementById("turn-indicator");
+    const quizOptionsDiv   = document.getElementById("quiz-options");
+    const quizScoresDiv    = document.getElementById("quiz-scores");
+    const winnerDiv        = document.getElementById("winner");
+    const rankingListUl    = document.getElementById("ranking-list");
+
+    // Banco de preguntas (idéntico a Android)
     const questions = [
-      { text: "¿Capital de Argentina?", options: ["Buenos Aires", "Lima", "Santiago"], correctIndex: 0 },
-      { text: "¿Color del cielo?", options: ["Verde", "Azul", "Rojo"], correctIndex: 1 },
-      { text: "¿2+2?", options: ["3", "4", "5"], correctIndex: 1 },
-      // ... agregá más preguntas si querés
+      { text: "¿Capital de Francia?", options: ["Londres","Madrid","París","Berlín"], correctIndex: 2 },
+      { text: "¿5 + 7 = ?",         options: ["10","12","11","14"],       correctIndex: 1 },
+      { text: "¿Color del cielo?",  options: ["Verde","Azul","Rojo","Amarillo"], correctIndex: 1 }
     ];
 
-    // Elementos DOM
-    const usernameInput = document.getElementById("usernameInput");
-    const joinBtn = document.getElementById("joinBtn");
-    const gameArea = document.getElementById("gameArea");
-    const usersListUl = document.getElementById("usersList");
-    const turnIndicatorDiv = document.getElementById("turnIndicator");
-    const questionDiv = document.getElementById("question");
-    const answersDiv = document.getElementById("answers");
-    const countdownDiv = document.getElementById("countdown");
-    const rankingDiv = document.getElementById("ranking");
+    // 3) Funciones auxiliares
+    function showMessage(txt) {
+      messageDiv.textContent = txt;
+      setTimeout(() => { messageDiv.textContent = ""; }, 3000);
+    }
+    function clearUsersList() {
+      usersListUl.innerHTML = "";
+    }
+    function clearRankingList() {
+      rankingListUl.innerHTML = "";
+    }
 
-    joinBtn.onclick = () => {
-      const name = usernameInput.value.trim();
-      if (!name) {
-        alert("Ingresá un nombre válido");
+    // 4) CREATE ROOM
+    function createRoom() {
+      const roomId   = roomIdInput.value.trim();
+      const userName = userNameInput.value.trim();
+      if (!roomId || !userName) {
+        showMessage("Completa ambos campos");
         return;
       }
-      currentUserName = name;
-      joinRoom(currentRoomId, currentUserName);
-    };
+      currentRoomId   = roomId;
+      currentUserName = userName;
 
-    // Función para unirse a la sala
-    function joinRoom(roomId, userName) {
-      // Guardar usuario en Firebase
-      const userRef = ref(db, `salas/${roomId}/usuarios/${userName}`);
-      set(userRef, true).then(() => {
-        gameArea.style.display = "block";
-        usernameInput.disabled = true;
-        joinBtn.disabled = true;
-
+      set(ref(db, salas/${roomId}/state), {
+        turnIndex: 0,
+        questionIndex: 0,
+        scores: { [userName]: 0 }
+      })
+      .then(() => {
+        return set(ref(db, salas/${roomId}/usuarios/${userName}), true);
+      })
+      .then(() => {
         listenToUsers(roomId);
-        listenToState(roomId);
+        showMessage(Sala creada: ${roomId});
+      })
+      .catch(err => {
+        showMessage("Error al crear sala: " + err.message);
       });
     }
 
-    // Escuchar usuarios, guardar lista ordenada en Firebase
+    // 5) JOIN ROOM
+    function joinRoom() {
+      const roomId   = roomIdInput.value.trim();
+      const userName = userNameInput.value.trim();
+      if (!roomId || !userName) {
+        showMessage("Completa ambos campos");
+        return;
+      }
+      currentRoomId   = roomId;
+      currentUserName = userName;
+
+      set(ref(db, salas/${roomId}/usuarios/${userName}), true)
+      .then(() => {
+        return set(ref(db, salas/${roomId}/state/scores/${userName}), 0);
+      })
+      .then(() => {
+        listenToUsers(roomId);
+        showMessage(Unido a la sala: ${roomId});
+      })
+      .catch(err => {
+        showMessage("Error al unirse: " + err.message);
+      });
+    }
+
+    // 6) RESET ALL
+    function resetAll() {
+      remove(ref(db, "salas"))
+      .then(() => {
+        showMessage("Todas las salas fueron reiniciadas");
+        clearUsersList();
+        clearRankingList();
+        countdownDiv.textContent = "";
+        hasCountdownStarted = false;
+        if (countdownTimer) {
+          clearInterval(countdownTimer);
+          countdownTimer = null;
+        }
+      })
+      .catch(err => {
+        showMessage("Error al reiniciar: " + err.message);
+      });
+    }
+
+    // 7) LISTENER a “salas/{roomId}/usuarios”
     function listenToUsers(roomId) {
       hasCountdownStarted = false;
       countdownValue = 15;
       countdownDiv.textContent = "";
 
-      const usuariosRef = ref(db, `salas/${roomId}/usuarios`);
+      const usuariosRef = ref(db, salas/${roomId}/usuarios);
       onValue(usuariosRef, snapshot => {
         const usersObj = snapshot.val() || {};
         const userList = Object.keys(usersObj).sort();
+        userListGlobal = userList; // Actualizamos la lista global aquí
 
-        // Guardar lista ordenada para sincronización
-        set(ref(db, `salas/${roomId}/ordenUsuarios`), userList);
-
-        // Mostrar lista en UI
+        // Actualizar lista en UI
         usersListUl.innerHTML = "";
         userList.forEach(user => {
           const li = document.createElement("li");
@@ -122,205 +312,217 @@
           usersListUl.appendChild(li);
         });
 
+        // Si hay ≥ 3 jugadores y aún no arrancó la cuenta atrás, iniciarla
         if (userList.length >= 3 && !hasCountdownStarted) {
           startCountdown();
         }
       });
     }
 
-    // Escuchar estado (turno, pregunta, scores)
+    // 8) LISTENERS a “salas/{roomId}/state/turnIndex” y “salas/{roomId}/state/questionIndex” y “salas/{roomId}/state/scores”
     function listenToState(roomId) {
-      // Listener turno
-      const turnRef = ref(db, `salas/${roomId}/state/turnIndex`);
-      onValue(turnRef, async snapshot => {
+      // A) Listener para turnIndex
+      const turnRef = ref(db, salas/${roomId}/state/turnIndex);
+      onValue(turnRef, snapshot => {
         const turnIndex = snapshot.val();
         if (turnIndex === null || turnIndex === undefined) return;
 
-        const ordenRef = ref(db, `salas/${roomId}/ordenUsuarios`);
-        const ordenSnap = await new Promise(resolve => {
-          onValue(ordenRef, snap => resolve(snap), { onlyOnce: true });
-        });
-        const userList = ordenSnap.val() || [];
-        if (userList.length === 0) return;
+        // Leemos pregunta actual una sola vez
+        const questionIndexRef = ref(db, salas/${roomId}/state/questionIndex);
+        onValue(questionIndexRef, qSnap => {
+          const questionIndex = qSnap.val() || 0;
+          if (questionIndex >= questions.length) {
+            endQuizUI();
+            return;
+          }
+          const userList = userListGlobal;
+          if (userList.length === 0) return;
+          const currentPlayer = userList[turnIndex % userList.length];
 
-        const questionIndexRef = ref(db, `salas/${roomId}/state/questionIndex`);
-        const qSnap = await new Promise(resolve => {
-          onValue(questionIndexRef, snap => resolve(snap), { onlyOnce: true });
-        });
-        const questionIndex = qSnap.val() || 0;
-        if (questionIndex >= questions.length) {
-          endQuizUI();
-          return;
-        }
+          // Actualizar indicador de turno
+          turnIndicatorDiv.textContent = Turno de: ${currentPlayer};
 
-        const currentPlayer = userList[turnIndex % userList.length];
-        turnIndicatorDiv.textContent = `Turno de: ${currentPlayer}`;
-
-        showQuestionUI(questionIndex, currentPlayer);
+          // Mostramos la pregunta actual con botones habilitados solo para quien corresponda
+          showQuestionUI(questionIndex, currentPlayer);
+        }, { onlyOnce: true });
       });
 
-      // Listener pregunta
-      const qRef = ref(db, `salas/${roomId}/state/questionIndex`);
-      onValue(qRef, async snapshot => {
+      // B) Listener para questionIndex
+      const qRef = ref(db, salas/${roomId}/state/questionIndex);
+      onValue(qRef, snapshot => {
         const questionIndex = snapshot.val();
         if (questionIndex === null || questionIndex === undefined) return;
         if (questionIndex >= questions.length) {
           endQuizUI();
           return;
         }
+        // Leemos turno actual una sola vez
+        const turnIndexRef = ref(db, salas/${roomId}/state/turnIndex);
+        onValue(turnIndexRef, tSnap => {
+          const turnIndex = tSnap.val() || 0;
+          const userList = userListGlobal;
+          if (userList.length === 0) return;
+          const currentPlayer = userList[turnIndex % userList.length];
 
-        const ordenRef = ref(db, `salas/${roomId}/ordenUsuarios`);
-        const ordenSnap = await new Promise(resolve => {
-          onValue(ordenRef, snap => resolve(snap), { onlyOnce: true });
-        });
-        const userList = ordenSnap.val() || [];
-        if (userList.length === 0) return;
-
-        const turnIndexRef = ref(db, `salas/${roomId}/state/turnIndex`);
-        const tSnap = await new Promise(resolve => {
-          onValue(turnIndexRef, snap => resolve(snap), { onlyOnce: true });
-        });
-        const turnIndex = tSnap.val() || 0;
-
-        const currentPlayer = userList[turnIndex % userList.length];
-
-        turnIndicatorDiv.textContent = `Turno de: ${currentPlayer}`;
-        showQuestionUI(questionIndex, currentPlayer);
+          // Actualizar indicador de turno y mostrar nueva pregunta
+          turnIndicatorDiv.textContent = Turno de: ${currentPlayer};
+          showQuestionUI(questionIndex, currentPlayer);
+        }, { onlyOnce: true });
       });
 
-      // Listener scores
-      const scoresRef = ref(db, `salas/${roomId}/state/scores`);
+      // C) Listener para scores: solo actualiza ranking
+      const scoresRef = ref(db, salas/${roomId}/state/scores);
       onValue(scoresRef, snapshot => {
         const scores = snapshot.val() || {};
         updateRankingUI(scores);
       });
     }
 
-    // Mostrar pregunta y opciones solo al jugador cuyo turno es
-    function showQuestionUI(questionIndex, currentPlayer) {
-      if (currentUserName !== currentPlayer) {
-        questionDiv.textContent = "Esperando turno...";
-        answersDiv.innerHTML = "";
-        countdownDiv.textContent = "";
-        return;
-      }
-      const qObj = questions[questionIndex];
-      if (!qObj) {
-        questionDiv.textContent = "No hay más preguntas.";
-        answersDiv.innerHTML = "";
-        countdownDiv.textContent = "";
-        return;
-      }
-
-      questionDiv.textContent = qObj.text;
-      answersDiv.innerHTML = "";
-
-      qObj.options.forEach((opt, i) => {
-        const btn = document.createElement("button");
-        btn.textContent = opt;
-        btn.onclick = () => {
-          clearInterval(countdownTimer);
-          handleAnswer(i);
-        };
-        answersDiv.appendChild(btn);
-      });
-    }
-
-    // Actualizar ranking en UI
-    function updateRankingUI(scores) {
-      rankingDiv.innerHTML = "<h3>Ranking:</h3>";
-      const entries = Object.entries(scores);
-      entries.sort((a, b) => b[1] - a[1]);
-      if (entries.length === 0) {
-        rankingDiv.innerHTML += "<p>No hay puntajes aún.</p>";
-        return;
-      }
-      const ul = document.createElement("ul");
-      entries.forEach(([user, score]) => {
-        const li = document.createElement("li");
-        li.textContent = `${user}: ${score}`;
-        ul.appendChild(li);
-      });
-      rankingDiv.appendChild(ul);
-    }
-
-    // Contador para iniciar juego cuando haya 3 o más jugadores
+    // 9) CUENTA ATRÁS (15 s) y luego transición a Quiz
     function startCountdown() {
       hasCountdownStarted = true;
-      countdownValue = 15;
-      countdownDiv.textContent = `El juego empieza en: ${countdownValue}s`;
-
+      countdownDiv.textContent = Comienza en ${countdownValue} s;
       countdownTimer = setInterval(() => {
         countdownValue--;
-        countdownDiv.textContent = `El juego empieza en: ${countdownValue}s`;
-        if (countdownValue <= 0) {
+        if (countdownValue > 0) {
+          countdownDiv.textContent = Comienza en ${countdownValue} s;
+        } else {
           clearInterval(countdownTimer);
-          initializeGame();
+          countdownDiv.textContent = "¡Arranca el juego!";
+          setTimeout(() => {
+            transitionToQuiz();
+          }, 500);
         }
       }, 1000);
     }
 
-    // Iniciar el juego: poner turno y pregunta en 0 y scores vacíos
-    function initializeGame() {
-      set(ref(db, `salas/${currentRoomId}/state`), {
-        turnIndex: 0,
-        questionIndex: 0,
-        scores: {}
+    // 10) TRANSICIÓN a Quiz
+    function transitionToQuiz() {
+      joinScreenDiv.classList.add("hidden");
+      quizScreenDiv.classList.remove("hidden");
+      // Arrancamos listeners de turno/pregunta
+      listenToState(currentRoomId);
+    }
+
+    // 11) Mostrar pregunta y opciones basadas en questionIndex & currentPlayer
+    function showQuestionUI(questionIndex, currentPlayer) {
+      if (questionIndex >= questions.length) return;
+      const qObj = questions[questionIndex];
+      quizQuestionText.textContent = qObj.text;
+      quizOptionsDiv.innerHTML = "";
+
+      qObj.options.forEach((opt, idx) => {
+        const btn = document.createElement("button");
+        btn.textContent = opt;
+        btn.disabled = (currentPlayer !== currentUserName);
+        btn.addEventListener("click", () => handleAnswer(idx));
+        quizOptionsDiv.appendChild(btn);
       });
     }
 
-    // Finalizar juego UI
-    function endQuizUI() {
-      questionDiv.textContent = "El quiz terminó.";
-      answersDiv.innerHTML = "";
-      countdownDiv.textContent = "";
-      turnIndicatorDiv.textContent = "";
+    // 12) Actualizar ranking en UI
+    function updateRankingUI(scores) {
+      const sorted = Object.entries(scores).sort((a,b) => b[1] - a[1]);
+      rankingListUl.innerHTML = "";
+      sorted.forEach(([user, score], idx) => {
+        const li = document.createElement("li");
+        li.classList.add("list-item");
+        li.textContent = ${idx + 1}. ${user} — ${score} pts;
+        if (idx === 0) {
+          const crownSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          crownSvg.setAttribute("viewBox", "0 0 24 24");
+          crownSvg.setAttribute("class", "crown-icon");
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", "M5 16L3 6l5 4 4-5 4 5 5-4-2 10H5z");
+          path.setAttribute("fill", "gold");
+          crownSvg.appendChild(path);
+          li.insertBefore(crownSvg, li.firstChild);
+        }
+        rankingListUl.appendChild(li);
+      });
     }
 
-    // Manejar respuesta (solo si es tu turno)
-    async function handleAnswer(selectedIndex) {
-      try {
-        const ordenRef = ref(db, `salas/${currentRoomId}/ordenUsuarios`);
-        const ordenSnap = await new Promise(resolve => {
-          onValue(ordenRef, snap => resolve(snap), { onlyOnce: true });
-        });
-        const userList = ordenSnap.val() || [];
-        if (userList.length === 0) return;
+    // 13) Manejar respuesta cuando es mi turno (rotación con userListGlobal)
+    function handleAnswer(selectedIndex) {
+      const stateRef = ref(db, salas/${currentRoomId}/state);
+      runTransaction(stateRef, state => {
+        if (!state) return state;
+        const qIndex = state.questionIndex || 0;
+        const scores = state.scores || {};
+        const turnIndex = state.turnIndex || 0;
+        const userList = userListGlobal;
+        if (!Array.isArray(userList) || userList.length === 0) return state;
 
-        const stateRef = ref(db, `salas/${currentRoomId}/state`);
-        runTransaction(stateRef, state => {
-          if (!state) return state;
-          const qIndex = state.questionIndex || 0;
-          const scores = state.scores || {};
-          const turnIndex = state.turnIndex || 0;
+        const currentPlayer = userList[turnIndex % userList.length];
+        if (currentPlayer !== currentUserName) return state;
 
-          const currentPlayer = userList[turnIndex % userList.length];
-          if (currentPlayer !== currentUserName) return state;
+        const qObj = questions[qIndex];
+        if (!qObj) return state;
 
-          const qObj = questions[qIndex];
-          if (!qObj) return state;
+        if (selectedIndex === qObj.correctIndex) {
+          state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
+        }
 
-          if (selectedIndex === qObj.correctIndex) {
-            state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
-          }
+        const nextTurn = (turnIndex + 1) % userList.length;
+        if (nextTurn === 0) {
+          state.questionIndex = qIndex + 1;
+        }
+        state.turnIndex = nextTurn;
+        return state;
+      }, {
+        onComplete: (err, committed, snapshot) => {
+          if (err) console.error("runTransaction error:", err);
+          if (!committed) console.warn("Transaction no fue comprometida");
+        }
+      });
+    }
 
-          const nextTurn = (turnIndex + 1) % userList.length;
-          if (nextTurn === 0) {
-            state.questionIndex = qIndex + 1;
-          }
-          state.turnIndex = nextTurn;
-          return state;
-        }, {
-          onComplete: (err, committed, snapshot) => {
-            if (err) console.error("runTransaction error:", err);
-            if (!committed) console.warn("Transaction no fue comprometida");
-          }
-        });
-      } catch (e) {
-        console.error("Error en handleAnswer:", e);
+    // 14) Finalizar quiz en UI
+    function endQuizUI() {
+      const scoresRef = ref(db, salas/${currentRoomId}/state/scores);
+      onValue(scoresRef, snap => {
+        const finalScores = snap.val() || {};
+        const sorted = Object.entries(finalScores).sort((a,b) => b[1] - a[1]);
+        if (sorted.length) {
+          const [winnerName, winnerScore] = sorted[0];
+          winnerDiv.innerHTML = <h3>¡Ganador: ${winnerName} con ${winnerScore} pts!</h3>;
+        } else {
+          winnerDiv.textContent = "No hay participantes.";
+        }
+      }, { onlyOnce: true });
+
+      setTimeout(() => {
+        resetToJoin();
+      }, 5000);
+    }
+
+    // 15) Resetear a Join Room
+    function resetToJoin() {
+      quizQuestionText.textContent = "";
+      turnIndicatorDiv.textContent = "";
+      quizOptionsDiv.innerHTML = "";
+      quizScoresDiv.innerHTML = "";
+      winnerDiv.textContent = "";
+
+      joinScreenDiv.classList.remove("hidden");
+      quizScreenDiv.classList.add("hidden");
+      clearUsersList();
+      clearRankingList();
+      countdownDiv.textContent = "";
+      hasCountdownStarted = false;
+      userListGlobal = [];
+      if (countdownTimer) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
       }
     }
 
+    // 16) Eventos de botón
+    btnCreateRoom.addEventListener("click", createRoom);
+    btnJoinRoom.addEventListener("click", joinRoom);
+    btnResetAll.addEventListener("click", resetAll);
   </script>
 </body>
-</html>
+</html
+
+
