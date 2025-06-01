@@ -251,7 +251,7 @@
       });
     }
 
-    // 5) JOIN ROOM (igual que Android)
+    // 5) JOIN ROOM (igual que en Android)
     function joinRoom() {
       const roomId   = roomIdInput.value.trim();
       const userName = userNameInput.value.trim();
@@ -323,22 +323,25 @@
       });
     }
 
-    // 8) LISTENERS a “salas/{roomId}/state/*” (turnIndex, questionIndex, scores)
+    // 8) LISTENERS a “salas/{roomId}/state/turnIndex”, “salas/{roomId}/state/questionIndex” y “salas/{roomId}/state/scores”
     function listenToState(roomId) {
       // A) Listener para turnIndex
       const turnRef = ref(db, `salas/${roomId}/state/turnIndex`);
       onValue(turnRef, snapshot => {
         const turnIndex = snapshot.val();
         if (turnIndex === null || turnIndex === undefined) return;
-        // Tomamos lista de jugadores (orden alfabético) y calculamos quién toca
-        getScoresOnce(roomId).then(scores => {
+
+        // Cuando cambia el turno, leemos scores y questionIndex para regenerar UI
+        getTurnAndScoresAndQuestion(roomId).then(({ turnIndex, scores, questionIndex }) => {
           const userList = Object.keys(scores).sort();
           if (userList.length === 0) return;
           const currentPlayer = userList[turnIndex % userList.length];
+
+          // Actualizar indicador de turno
           turnIndicatorDiv.textContent = `Turno de: ${currentPlayer}`;
-          if (currentPlayer !== currentUserName) {
-            disableAllOptionButtons();
-          }
+
+          // Regenerar botones para la pregunta actual, con estado correcto
+          showQuestionUI(questionIndex, currentPlayer);
         });
       });
 
@@ -351,33 +354,64 @@
           endQuizUI();
           return;
         }
-        // Mostramos pregunta y opciones según quien sea el turno actual
+        // Cuando cambia la pregunta, necesitamos saber quién está en turno para generar botones
         getTurnAndScoresOnce(roomId).then(({ turnIndex, scores }) => {
           const userList = Object.keys(scores).sort();
           if (userList.length === 0) return;
           const currentPlayer = userList[turnIndex % userList.length];
+          // Actualizar indicador de turno
+          turnIndicatorDiv.textContent = `Turno de: ${currentPlayer}`;
+          // Generar botones para nueva pregunta
           showQuestionUI(questionIndex, currentPlayer);
         });
       });
 
-      // C) Listener para scores: actualiza ranking y, de paso, verifica si debo deshabilitar opciones
+      // C) Listener para scores: actualiza ranking
       const scoresRef = ref(db, `salas/${roomId}/state/scores`);
       onValue(scoresRef, snapshot => {
         const scores = snapshot.val() || {};
         updateRankingUI(scores);
-        // Verificamos turno actual para deshabilitar botones si no toca
-        getTurnOnce(roomId).then(turnIndex => {
-          const userList = Object.keys(snapshot.val() || {}).sort();
-          if (userList.length === 0) return;
-          const currentPlayer = userList[turnIndex % userList.length];
-          if (currentPlayer !== currentUserName) {
-            disableAllOptionButtons();
-          }
+        // (No es necesario deshabilitar aquí, lo hace el listener de turnIndex)
+      });
+    }
+
+    // 9) Leer turnIndex, scores y questionIndex en una sola llamada
+    function getTurnAndScoresAndQuestion(roomId) {
+      return new Promise(resolve => {
+        const stateRef = ref(db, `salas/${roomId}/state`);
+        onValue(stateRef, snap => {
+          const state = snap.val() || {};
+          resolve({
+            turnIndex: state.turnIndex || 0,
+            scores: state.scores || {},
+            questionIndex: state.questionIndex || 0
+          });
+        }, { onlyOnce: true });
+      });
+    }
+
+    // 10) Leer solo turnIndex y scores (para cuando cambie questionIndex)
+    function getTurnAndScoresOnce(roomId) {
+      return new Promise(resolve => {
+        getTurnIndexOnce(roomId).then(turnIndex => {
+          getScoresOnce(roomId).then(scores => {
+            resolve({ turnIndex, scores });
+          });
         });
       });
     }
 
-    // 9) Leer scores una sola vez (para no anidar onValue)
+    // 11) Leer solo turnIndex una vez
+    function getTurnIndexOnce(roomId) {
+      return new Promise(resolve => {
+        const turnRef = ref(db, `salas/${roomId}/state/turnIndex`);
+        onValue(turnRef, snap => {
+          resolve(snap.val() || 0);
+        }, { onlyOnce: true });
+      });
+    }
+
+    // 12) Leer solo scores una vez
     function getScoresOnce(roomId) {
       return new Promise(resolve => {
         const scoresRef = ref(db, `salas/${roomId}/state/scores`);
@@ -387,33 +421,7 @@
       });
     }
 
-    // 10) Leer turnIndex y scores en simultáneo (para mostrar pregunta + opciones)
-    function getTurnAndScoresOnce(roomId) {
-      return new Promise(resolve => {
-        let result = {};
-        const turnRef = ref(db, `salas/${roomId}/state/turnIndex`);
-        onValue(turnRef, snapTurn => {
-          result.turnIndex = snapTurn.val() || 0;
-          const scoresRef = ref(db, `salas/${roomId}/state/scores`);
-          onValue(scoresRef, snapScores => {
-            result.scores = snapScores.val() || {};
-            resolve(result);
-          }, { onlyOnce: true });
-        }, { onlyOnce: true });
-      });
-    }
-
-    // 11) Leer solo turnIndex una vez
-    function getTurnOnce(roomId) {
-      return new Promise(resolve => {
-        const turnRef = ref(db, `salas/${roomId}/state/turnIndex`);
-        onValue(turnRef, snap => {
-          resolve(snap.val() || 0);
-        }, { onlyOnce: true });
-      });
-    }
-
-    // 12) CUENTA ATRÁS (15 s) y luego transición a Quiz
+    // 13) CUENTA ATRÁS (15 s) y luego transición a Quiz
     function startCountdown() {
       hasCountdownStarted = true;
       countdownDiv.textContent = `Comienza en ${countdownValue} s`;
@@ -431,7 +439,7 @@
       }, 1000);
     }
 
-    // 13) TRANSICIÓN a Quiz
+    // 14) TRANSICIÓN a Quiz
     function transitionToQuiz() {
       joinScreenDiv.classList.add("hidden");
       quizScreenDiv.classList.remove("hidden");
@@ -439,7 +447,7 @@
       listenToState(currentRoomId);
     }
 
-    // 14) Mostrar pregunta y opciones basadas en questionIndex & currentPlayer
+    // 15) Mostrar pregunta y opciones basadas en questionIndex & currentPlayer
     function showQuestionUI(questionIndex, currentPlayer) {
       if (questionIndex >= questions.length) return;
       const qObj = questions[questionIndex];
@@ -455,14 +463,14 @@
       });
     }
 
-    // 15) Deshabilitar todos los botones de opción
+    // 16) Deshabilitar todos los botones de opción
     function disableAllOptionButtons() {
       Array.from(quizOptionsDiv.children).forEach(child => {
         if (child.tagName === "BUTTON") child.disabled = true;
       });
     }
 
-    // 16) Actualizar marcador en UI (ランキング)
+    // 17) Actualizar marcador en UI (ランキング)
     function updateRankingUI(scores) {
       const sorted = Object.entries(scores).sort((a,b) => b[1] - a[1]);
       rankingListUl.innerHTML = "";
@@ -484,7 +492,7 @@
       });
     }
 
-    // 17) Manejar respuesta cuando es mi turno (runTransaction)
+    // 18) Manejar respuesta cuando es mi turno (runTransaction)
     function handleAnswer(selectedIndex) {
       const stateRef = ref(db, `salas/${currentRoomId}/state`);
       runTransaction(stateRef, state => {
@@ -522,7 +530,7 @@
       });
     }
 
-    // 18) Finalizar quiz en UI
+    // 19) Finalizar quiz en UI
     function endQuizUI() {
       const scoresRef = ref(db, `salas/${currentRoomId}/state/scores`);
       onValue(scoresRef, snap => {
@@ -541,7 +549,7 @@
       }, 5000);
     }
 
-    // 19) Resetear a Join Room
+    // 20) Resetear a Join Room
     function resetToJoin() {
       quizQuestionText.textContent = "";
       turnIndicatorDiv.textContent = "";
@@ -561,7 +569,7 @@
       }
     }
 
-    // 20) Eventos de botón
+    // 21) Eventos de botón
     btnCreateRoom.addEventListener("click", createRoom);
     btnJoinRoom.addEventListener("click", joinRoom);
     btnResetAll.addEventListener("click", resetAll);
