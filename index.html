@@ -185,11 +185,11 @@
     const db  = getDatabase(app);
 
     // ———————— 2. Variables globales ————————
-    let currentRoomId     = "";
-    let currentUserName   = "";
-    let countdownTimer    = null;
+    let currentRoomId       = "";
+    let currentUserName     = "";
+    let countdownTimer      = null;
     let hasCountdownStarted = false;
-    let countdownValue    = 15;
+    let countdownValue      = 15;
 
     // Referencias DOM
     const joinScreenDiv    = document.getElementById("join-screen");
@@ -237,7 +237,6 @@
     // ———————— 3. Funciones de “Join Room” ————————
 
     function showMessage(txt) {
-      console.log("Mensaje:", txt);
       messageDiv.textContent = txt;
       setTimeout(() => {
         messageDiv.textContent = "";
@@ -255,7 +254,6 @@
     function createRoom() {
       const roomId   = roomIdInput.value.trim();
       const userName = userNameInput.value.trim();
-      console.log("createRoom()", roomId, userName);
       if (!roomId || !userName) {
         showMessage("Completa ambos campos");
         return;
@@ -263,18 +261,18 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
-      // 1) Inicializa state en Firebase (no se usará en JS, pero dejamos para consistencia)
+      // 1) Inicializa state con scores, turnIndex y questionIndex
       set(ref(db, `salas/${roomId}/state`), {
         turnIndex: 0,
         questionIndex: 0,
-        scores: {}
+        scores: { [userName]: 0 }
       })
       .then(() => {
-        // 2) Guarda usuario con score 0
-        set(ref(db, `salas/${roomId}/scores/${userName}`), 0);
-        // 3) Guarda usuario en users para mostrar lista
-        set(ref(db, `salas/${roomId}/users/${userName}`), true);
-        // 4) Empieza a escuchar la sala
+        // 2) Añade usuario en “usuarios”
+        return set(ref(db, `salas/${roomId}/usuarios/${userName}`), true);
+      })
+      .then(() => {
+        // 3) Empieza a escuchar la sala
         listenToRoom(roomId);
         showMessage(`Sala creada: ${roomId}`);
       })
@@ -293,12 +291,20 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
-      // Añade usuario a users y a scores (si no existía)
-      set(ref(db, `salas/${roomId}/users/${userName}`), true);
-      set(ref(db, `salas/${roomId}/scores/${userName}`), 0);
-
-      listenToRoom(roomId);
-      showMessage(`Unido a la sala: ${roomId}`);
+      // 1) Añade usuario a “usuarios”
+      set(ref(db, `salas/${roomId}/usuarios/${userName}`), true)
+      .then(() => {
+        // 2) Inicializa score en state/scores si no existe
+        return set(ref(db, `salas/${roomId}/state/scores/${userName}`), 0);
+      })
+      .then(() => {
+        // 3) Empieza a escuchar la sala
+        listenToRoom(roomId);
+        showMessage(`Unido a la sala: ${roomId}`);
+      })
+      .catch((err) => {
+        showMessage("Error al unirse: " + err.message);
+      });
     }
 
     function resetAll() {
@@ -326,9 +332,9 @@
       countdownValue = 15;
       countdownDiv.textContent = "";
 
-      // Escuchar usuarios
-      const usersRef = ref(db, `salas/${roomId}/users`);
-      onValue(usersRef, (snapshot) => {
+      // Escuchar "usuarios"
+      const usuariosRef = ref(db, `salas/${roomId}/usuarios`);
+      onValue(usuariosRef, (snapshot) => {
         const users = snapshot.val() || {};
         const userList = Object.keys(users);
 
@@ -340,14 +346,14 @@
           usersListUl.appendChild(li);
         });
 
-        // Si hay 3 o más jugadores y no hemos iniciado la cuenta atrás: arrancar
+        // Si hay 3 o más jugadores y no ha comenzado la cuenta atrás, arrancar
         if (userList.length >= 3 && !hasCountdownStarted) {
           startCountdown();
         }
       });
 
-      // Escuchar ranking (scores)
-      const scoresRef = ref(db, `salas/${roomId}/scores`);
+      // Escuchar ranking en state/scores
+      const scoresRef = ref(db, `salas/${roomId}/state/scores`);
       onValue(scoresRef, (snapshot) => {
         const scores = snapshot.val() || {};
         // Ordenar por puntaje descendente
@@ -433,8 +439,8 @@
       const qObj = questions[currentQuestionIndex];
       const isCorrect = selectedIndex === qObj.correctIndex;
       if (isCorrect) {
-        // Incrementar score en Firebase
-        runTransaction(ref(db, `salas/${currentRoomId}/scores/${currentUserName}`), (current) => {
+        // Incrementar score en Firebase dentro de state/scores
+        runTransaction(ref(db, `salas/${currentRoomId}/state/scores/${currentUserName}`), (current) => {
           return (current || 0) + 1;
         });
       }
@@ -449,7 +455,7 @@
 
     function showScores() {
       // Escuchar continuamente los scores y mostrarlos
-      const scoresRef = ref(db, `salas/${currentRoomId}/scores`);
+      const scoresRef = ref(db, `salas/${currentRoomId}/state/scores`);
       onValue(scoresRef, (snapshot) => {
         const scores = snapshot.val() || {};
         quizScoresDiv.innerHTML = "<h4>Marcadores:</h4>";
@@ -466,7 +472,7 @@
 
     function endQuiz() {
       // Determinar ganador
-      const scoresRef = ref(db, `salas/${currentRoomId}/scores`);
+      const scoresRef = ref(db, `salas/${currentRoomId}/state/scores`);
       onValue(scoresRef, (snapshot) => {
         const scores = snapshot.val() || {};
         const sorted = Object.entries(scores).sort((a,b) => b[1] - a[1]);
