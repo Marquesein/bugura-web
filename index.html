@@ -163,7 +163,7 @@
       remove
     } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
-    // 1) Configuración de Firebase: Mismo proyecto que Android
+    // 1) Configuración de Firebase: mismo proyecto que Android
     const firebaseConfig = {
       apiKey: "AIzaSyDAYh1x8p1wbdNEM4nA33y9sWh2Q3MrLxo",
       authDomain: "bugura-cf2cd.firebaseapp.com",
@@ -231,7 +231,7 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
-      // 4.1) Inicializar “salas/{roomId}/state” exactamente:
+      // 4.1) Inicializar “salas/{roomId}/state” exactamente
       set(ref(db, `salas/${roomId}/state`), {
         turnIndex: 0,
         questionIndex: 0,
@@ -251,7 +251,7 @@
       });
     }
 
-    // 5) JOIN ROOM (igual que Android)
+    // 5) JOIN ROOM (igual que en Android)
     function joinRoom() {
       const roomId   = roomIdInput.value.trim();
       const userName = userNameInput.value.trim();
@@ -323,14 +323,14 @@
       });
     }
 
-    // 8) LISTENER a “salas/{roomId}/state/turnIndex”, “state/questionIndex” y “state/scores”
+    // 8) LISTENER a “salas/{roomId}/state/turnIndex”, “salas/{roomId}/state/questionIndex” y “salas/{roomId}/state/scores”
     function listenToState(roomId) {
       // 8.a) Listener para turnIndex
       const turnRef = ref(db, `salas/${roomId}/state/turnIndex`);
       onValue(turnRef, snapshot => {
         const turnIndex = snapshot.val();
         if (turnIndex === null || turnIndex === undefined) return;
-        // Tomamos lista de jugadores (orden alfabético) y calculamos el que toca
+        // Tomamos lista de jugadores (orden alfabético) y calculamos quién toca
         const scoresRef = ref(db, `salas/${roomId}/state/scores`);
         onValue(scoresRef, scoresSnap => {
           const scores = scoresSnap.val() || {};
