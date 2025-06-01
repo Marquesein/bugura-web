@@ -31,9 +31,9 @@
       font-size: 2em;
       margin-bottom: 24px;
       /* Efecto 3D con sombras */
-      text-shadow: 
-        2px 2px 0px #000000, 
-        4px 4px 0px #000000, 
+      text-shadow:
+        2px 2px 0px #000000,
+        4px 4px 0px #000000,
         6px 6px 0px #000000;
     }
     input[type="text"] {
@@ -104,9 +104,9 @@
       }
       .title {
         font-size: 1.5em;
-        text-shadow: 
-          1px 1px 0px #000000, 
-          2px 2px 0px #000000, 
+        text-shadow:
+          1px 1px 0px #000000,
+          2px 2px 0px #000000,
           3px 3px 0px #000000;
       }
     }
@@ -156,7 +156,6 @@
 
   <!-- ————————————————————————————————————————————————————
        Firebase JS SDK (modular v9) + lógica JS
-       Este bloque se coloca justo antes de </body>
        ———————————————————————————————————————————————————— -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
@@ -180,7 +179,7 @@
       appId: "1:170908399149:web:5e9ab4cf06e8079fe16aa4"
     };
 
-    console.log("Inicializando Firebase...");
+    // Asegúrate de que el Android también esté apuntando a este mismo `<databaseURL>`.
     const app = initializeApp(firebaseConfig);
     const db  = getDatabase(app);
 
@@ -212,7 +211,7 @@
 
     const rankingListUl    = document.getElementById("ranking-list");
 
-    // Banco de preguntas
+    // Banco de preguntas (igual que en Android)
     const questions = [
       {
         text: "¿Capital de Francia?",
@@ -230,11 +229,9 @@
         correctIndex: 1
       }
     ];
-
-    // Índice actual de pregunta
     let currentQuestionIndex = 0;
 
-    // ———————— 3. Funciones de “Join Room” ————————
+    // ———————— 3. “Join Room” ————————
 
     function showMessage(txt) {
       messageDiv.textContent = txt;
@@ -261,14 +258,15 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
-      // 1) Inicializa state con scores, turnIndex y questionIndex
+      // 1) Inicializa “state” EXACTO como en Android:
+      //    salas/{roomId}/state = { turnIndex:0, questionIndex:0, scores:{ hostName:0 } }
       set(ref(db, `salas/${roomId}/state`), {
         turnIndex: 0,
         questionIndex: 0,
         scores: { [userName]: 0 }
       })
       .then(() => {
-        // 2) Añade usuario en “usuarios”
+        // 2) Añade el usuario a “salas/{roomId}/usuarios/{userName} = true”
         return set(ref(db, `salas/${roomId}/usuarios/${userName}`), true);
       })
       .then(() => {
@@ -276,7 +274,7 @@
         listenToRoom(roomId);
         showMessage(`Sala creada: ${roomId}`);
       })
-      .catch((err) => {
+      .catch(err => {
         showMessage("Error al crear sala: " + err.message);
       });
     }
@@ -291,10 +289,10 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
-      // 1) Añade usuario a “usuarios”
+      // 1) Añade el usuario a “salas/{roomId}/usuarios/{userName}”
       set(ref(db, `salas/${roomId}/usuarios/${userName}`), true)
       .then(() => {
-        // 2) Inicializa score en state/scores si no existe
+        // 2) Crea score a 0 en “salas/{roomId}/state/scores/{userName}”
         return set(ref(db, `salas/${roomId}/state/scores/${userName}`), 0);
       })
       .then(() => {
@@ -302,7 +300,7 @@
         listenToRoom(roomId);
         showMessage(`Unido a la sala: ${roomId}`);
       })
-      .catch((err) => {
+      .catch(err => {
         showMessage("Error al unirse: " + err.message);
       });
     }
@@ -320,25 +318,25 @@
           countdownTimer = null;
         }
       })
-      .catch((err) => {
+      .catch(err => {
         showMessage("Error al reiniciar: " + err.message);
       });
     }
 
-    // ———————— 4. Listener de sala para actualizar UI ————————
+    // ———————— 4. Listener de sala ————————
 
     function listenToRoom(roomId) {
       hasCountdownStarted = false;
       countdownValue = 15;
       countdownDiv.textContent = "";
 
-      // Escuchar "usuarios"
+      // 4.a) Escucha “salas/{roomId}/usuarios” (igual que Android)
       const usuariosRef = ref(db, `salas/${roomId}/usuarios`);
-      onValue(usuariosRef, (snapshot) => {
+      onValue(usuariosRef, snapshot => {
         const users = snapshot.val() || {};
         const userList = Object.keys(users);
 
-        // Actualiza lista de usuarios
+        // Actualiza lista en pantalla
         usersListUl.innerHTML = "";
         userList.forEach(user => {
           const li = document.createElement("li");
@@ -346,37 +344,32 @@
           usersListUl.appendChild(li);
         });
 
-        // Si hay 3 o más jugadores y no ha comenzado la cuenta atrás, arrancar
+        // Si hay ≥ 3 jugadores y no ha arrancado cuenta atrás: la inicia
         if (userList.length >= 3 && !hasCountdownStarted) {
           startCountdown();
         }
       });
 
-      // Escuchar ranking en state/scores
+      // 4.b) Escucha “salas/{roomId}/state/scores” para ranking compartido
       const scoresRef = ref(db, `salas/${roomId}/state/scores`);
-      onValue(scoresRef, (snapshot) => {
+      onValue(scoresRef, snapshot => {
         const scores = snapshot.val() || {};
-        // Ordenar por puntaje descendente
-        const sorted = Object.entries(scores)
-          .sort((a,b) => b[1] - a[1]);
+        const sorted  = Object.entries(scores).sort((a,b) => b[1] - a[1]);
 
         rankingListUl.innerHTML = "";
-
         sorted.forEach(([user, score], idx) => {
           const li = document.createElement("li");
           li.classList.add("list-item");
           li.textContent = `${idx + 1}. ${user} — ${score} pts`;
 
-          // Agregar corona SVG al primer puesto
+          // Corona al primero
           if (idx === 0) {
             const crownSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
             crownSvg.setAttribute("viewBox", "0 0 24 24");
             crownSvg.setAttribute("class", "crown-icon");
-
             const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
             path.setAttribute("d", "M5 16L3 6l5 4 4-5 4 5 5-4-2 10H5z");
             path.setAttribute("fill", "gold");
-
             crownSvg.appendChild(path);
             li.insertBefore(crownSvg, li.firstChild);
           }
@@ -385,7 +378,7 @@
       });
     }
 
-    // ———————— 5. Lógica de cuenta atrás ————————
+    // ———————— 5. Cuenta atrás ————————
 
     function startCountdown() {
       hasCountdownStarted = true;
@@ -397,7 +390,6 @@
         } else {
           clearInterval(countdownTimer);
           countdownDiv.textContent = "¡Arranca el juego!";
-          // Esperamos medio segundo para que el usuario vea el texto “¡Arranca el juego!”
           setTimeout(() => {
             transitionToQuiz();
           }, 500);
@@ -413,7 +405,7 @@
       startQuiz();
     }
 
-    // ———————— 7. Lógica básica de Quiz ————————
+    // ———————— 7. Lógica de Quiz ————————
 
     function startQuiz() {
       currentQuestionIndex = 0;
@@ -436,15 +428,17 @@
     }
 
     function handleAnswer(selectedIndex) {
-      const qObj = questions[currentQuestionIndex];
+      const qObj     = questions[currentQuestionIndex];
       const isCorrect = selectedIndex === qObj.correctIndex;
+
       if (isCorrect) {
-        // Incrementar score en Firebase dentro de state/scores
-        runTransaction(ref(db, `salas/${currentRoomId}/state/scores/${currentUserName}`), (current) => {
+        // 7.a) Incrementa el score en “salas/{roomId}/state/scores/{userName}”
+        runTransaction(ref(db, `salas/${currentRoomId}/state/scores/${currentUserName}`), current => {
           return (current || 0) + 1;
         });
       }
-      // Pasar a siguiente pregunta o finalizar
+
+      // 7.b) Siguiente pregunta o fin
       currentQuestionIndex++;
       if (currentQuestionIndex < questions.length) {
         showQuestion();
@@ -454,9 +448,9 @@
     }
 
     function showScores() {
-      // Escuchar continuamente los scores y mostrarlos
+      // 7.c) Escucha en tiempo real “salas/{roomId}/state/scores”
       const scoresRef = ref(db, `salas/${currentRoomId}/state/scores`);
-      onValue(scoresRef, (snapshot) => {
+      onValue(scoresRef, snapshot => {
         const scores = snapshot.val() || {};
         quizScoresDiv.innerHTML = "<h4>Marcadores:</h4>";
         Object.entries(scores)
@@ -471,9 +465,9 @@
     }
 
     function endQuiz() {
-      // Determinar ganador
+      // 7.d) Determinar ganador y mostrar
       const scoresRef = ref(db, `salas/${currentRoomId}/state/scores`);
-      onValue(scoresRef, (snapshot) => {
+      onValue(scoresRef, snapshot => {
         const scores = snapshot.val() || {};
         const sorted = Object.entries(scores).sort((a,b) => b[1] - a[1]);
         if (sorted.length) {
@@ -482,7 +476,7 @@
         } else {
           winnerDiv.textContent = "No hay participantes.";
         }
-        // Después de 5 s, volvemos a “Join Room”
+        // 5 s después, volver a “Join Room”
         setTimeout(() => {
           resetToJoin();
         }, 5000);
@@ -490,7 +484,7 @@
     }
 
     function resetToJoin() {
-      // Limpiar variables y UI
+      // Limpiar UI y variables
       quizQuestionText.textContent = "";
       quizOptionsDiv.innerHTML = "";
       quizScoresDiv.innerHTML = "";
@@ -508,11 +502,11 @@
       }
     }
 
-    // ———————— 8. Eventos botones ————————
-
+    // ———————— 8. Eventos de botón ————————
     btnCreateRoom.addEventListener("click", createRoom);
     btnJoinRoom.addEventListener("click", joinRoom);
     btnResetAll.addEventListener("click", resetAll);
+
   </script>
 </body>
 </html>
