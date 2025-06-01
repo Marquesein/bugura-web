@@ -38,12 +38,7 @@
       },
       {
         question: "¿Quién pintó la Mona Lisa?",
-        answers: [
-          "Leonardo da Vinci",
-          "Pablo Picasso",
-          "Vincent Van Gogh",
-          "Claude Monet",
-        ],
+        answers: ["Leonardo da Vinci", "Pablo Picasso", "Van Gogh", "Monet"],
         correct: 0,
       },
       {
@@ -58,7 +53,9 @@
     let userList = [];
     let hasStarted = false;
 
-    const appDiv = document.getElementById("app");
+    const div1 = document.getElementById("div1");
+    const div2 = document.getElementById("div2");
+    const div3 = document.getElementById("div3");
 
     function joinRoom() {
       username = document.getElementById("username").value;
@@ -67,7 +64,8 @@
       const usersRef = ref(db, `salas/${roomId}/users`);
       push(usersRef, username).then(() => {
         listenToUsers(roomId);
-        showWaitingRoom();
+        div1.style.display = "none";
+        div2.style.display = "block";
       });
     }
 
@@ -75,7 +73,7 @@
       const usersRef = ref(db, `salas/${roomId}/users`);
       onValue(usersRef, (snapshot) => {
         userList = Object.values(snapshot.val() || {});
-        updateUserListUI(userList);
+        document.getElementById("users").innerHTML = userList.join("<br>");
 
         if (userList.length >= 3 && !hasStarted) {
           hasStarted = true;
@@ -84,29 +82,13 @@
       });
     }
 
-    function updateUserListUI(users) {
-      const usersDiv = document.getElementById("users");
-      usersDiv.innerHTML = "<h3>Jugadores:</h3><ul>" + users.map(u => `<li>${u}</li>`).join("") + "</ul>";
-    }
-
-    function showWaitingRoom() {
-      appDiv.innerHTML = `
-        <h2>Esperando jugadores...</h2>
-        <div id="users"></div>
-      `;
-    }
-
     function startCountdown() {
-      const countdownDiv = document.createElement("div");
-      countdownDiv.id = "countdown";
-      appDiv.appendChild(countdownDiv);
-
       let seconds = 5;
-      countdownDiv.innerText = `El juego empieza en ${seconds}...`;
-
+      const countdown = document.getElementById("countdown");
+      countdown.innerText = `Comenzando en ${seconds}...`;
       const interval = setInterval(() => {
         seconds--;
-        countdownDiv.innerText = `El juego empieza en ${seconds}...`;
+        countdown.innerText = `Comenzando en ${seconds}...`;
         if (seconds === 0) {
           clearInterval(interval);
           launchGame();
@@ -115,12 +97,8 @@
     }
 
     function launchGame() {
-      appDiv.innerHTML = `
-        <h2>¡Comienza el juego!</h2>
-        <div id="turn-indicator"></div>
-        <div id="question-container"></div>
-        <div id="ranking"></div>
-      `;
+      div2.style.display = "none";
+      div3.style.display = "block";
 
       const stateRef = ref(db, `salas/${roomId}/state`);
       set(stateRef, {
@@ -145,40 +123,33 @@
         }
 
         const currentPlayer = userList[turnIndex % userList.length];
-        document.getElementById("turn-indicator").innerText = `Turno de: ${currentPlayer}`;
+        document.getElementById("turn").innerText = `Turno de: ${currentPlayer}`;
         renderQuestion(questionIndex, currentPlayer);
         renderRanking(scores);
       });
     }
 
     function renderQuestion(index, currentPlayer) {
-      const question = questions[index];
-      if (!question) return;
+      const q = questions[index];
+      const qDiv = document.getElementById("question");
+      qDiv.innerHTML = `<h3>${q.question}</h3>`;
+      const aDiv = document.getElementById("answers");
+      aDiv.innerHTML = "";
 
-      const container = document.getElementById("question-container");
-      container.innerHTML = `
-        <h3>${question.question}</h3>
-        <div id="answers">
-          ${question.answers.map((ans, i) => `<button data-index="${i}">${ans}</button>`).join("")}
-        </div>
-      `;
-
-      document.querySelectorAll("#answers button").forEach(btn => {
+      q.answers.forEach((ans, i) => {
+        const btn = document.createElement("button");
+        btn.innerText = ans;
         btn.onclick = () => {
           if (username !== currentPlayer) {
-            alert("Esperá tu turno.");
+            alert("Esperá tu turno");
             return;
           }
 
-          const selectedIndex = parseInt(btn.dataset.index);
-          const isCorrect = selectedIndex === question.correct;
-
+          const correct = i === q.correct;
           get(ref(db, `salas/${roomId}/state`)).then((snap) => {
             const state = snap.val();
-            if (!state) return;
-
             const scores = state.scores || {};
-            scores[username] = (scores[username] || 0) + (isCorrect ? 1 : 0);
+            scores[username] = (scores[username] || 0) + (correct ? 1 : 0);
 
             const nextTurn = state.turnIndex + 1;
             const nextQuestion = nextTurn % userList.length === 0
@@ -188,44 +159,46 @@
             update(ref(db, `salas/${roomId}/state`), {
               turnIndex: nextTurn,
               questionIndex: nextQuestion,
-              scores: scores
+              scores: scores,
             });
           });
         };
+        aDiv.appendChild(btn);
       });
     }
 
     function renderRanking(scores) {
-      const ranking = document.getElementById("ranking");
+      const rDiv = document.getElementById("ranking");
       const sorted = Object.entries(scores || {}).sort((a, b) => b[1] - a[1]);
-      ranking.innerHTML = `
-        <h3>Ranking</h3>
-        <ul>
-          ${sorted.map(([user, score]) => `<li>${user}: ${score}</li>`).join("")}
-        </ul>
-      `;
+      rDiv.innerHTML = "<h3>Ranking</h3>" + sorted.map(([u, s]) => `<div>${u}: ${s}</div>`).join("");
     }
 
     function showFinalScores(scores) {
-      appDiv.innerHTML = `
-        <h2>Juego terminado</h2>
-        <div id="ranking"></div>
-      `;
+      div3.innerHTML = `<h2>Juego terminado</h2>`;
       renderRanking(scores);
     }
 
-    // UI inicial
-    appDiv.innerHTML = `
-      <h1>Juego de Preguntas</h1>
-      <input type="text" id="username" placeholder="Tu nombre" />
-      <button onclick="joinRoom()">Unirse</button>
-    `;
-
     window.joinRoom = joinRoom;
-
   </script>
 </head>
 <body>
-  <div id="app"></div>
+  <div id="div1">
+    <h1>Unirse al Juego</h1>
+    <input id="username" placeholder="Tu nombre" />
+    <button onclick="joinRoom()">Unirse</button>
+  </div>
+
+  <div id="div2" style="display:none;">
+    <h2>Esperando jugadores...</h2>
+    <div id="users"></div>
+    <div id="countdown"></div>
+  </div>
+
+  <div id="div3" style="display:none;">
+    <div id="turn"></div>
+    <div id="question"></div>
+    <div id="answers"></div>
+    <div id="ranking"></div>
+  </div>
 </body>
 </html>
