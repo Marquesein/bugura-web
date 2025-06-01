@@ -137,7 +137,7 @@
       <h3>Usuarios en sala:</h3>
       <ul id="users-list"></ul>
 
-      <div id="countdown"></div>
+      <div id="countdown" class="center"></div>
 
       <!-- ——————— Ranking general ——————— -->
       <h3>Ranking General</h3>
@@ -146,11 +146,11 @@
 
     <!-- ——————— Pantalla “Quiz” ——————— -->
     <div id="quiz-screen" class="hidden">
-      <h2>Quiz en Curso</h2>
+      <h2 class="center">Quiz en Curso</h2>
       <div id="quiz-question" class="question-text"></div>
       <div id="quiz-options" class="row"></div>
       <div id="quiz-scores" class="score-list"></div>
-      <div id="winner"></div>
+      <div id="winner" class="center"></div>
     </div>
   </div>
 
@@ -187,7 +187,9 @@
     // ———————— 2. Variables globales ————————
     let currentRoomId     = "";
     let currentUserName   = "";
-    let countdownInterval = null;
+    let countdownTimer    = null;
+    let hasCountdownStarted = false;
+    let countdownValue    = 15;
 
     // Referencias DOM
     const joinScreenDiv    = document.getElementById("join-screen");
@@ -229,6 +231,9 @@
       }
     ];
 
+    // Índice actual de pregunta
+    let currentQuestionIndex = 0;
+
     // ———————— 3. Funciones de “Join Room” ————————
 
     function showMessage(txt) {
@@ -258,7 +263,7 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
-      // 1) Inicializa state (scores/turnIndex/questionIndex)
+      // 1) Inicializa state en Firebase (no se usará en JS, pero dejamos para consistencia)
       set(ref(db, `salas/${roomId}/state`), {
         turnIndex: 0,
         questionIndex: 0,
@@ -269,7 +274,7 @@
         set(ref(db, `salas/${roomId}/scores/${userName}`), 0);
         // 3) Guarda usuario en users para mostrar lista
         set(ref(db, `salas/${roomId}/users/${userName}`), true);
-        // 4) Muestra usuarios y ranking actualizados
+        // 4) Empieza a escuchar la sala
         listenToRoom(roomId);
         showMessage(`Sala creada: ${roomId}`);
       })
@@ -288,9 +293,8 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
-      // Añade usuario a users
+      // Añade usuario a users y a scores (si no existía)
       set(ref(db, `salas/${roomId}/users/${userName}`), true);
-      // Inicializa score a 0 (si no existe)
       set(ref(db, `salas/${roomId}/scores/${userName}`), 0);
 
       listenToRoom(roomId);
@@ -303,6 +307,12 @@
         showMessage("Todas las salas fueron reiniciadas");
         clearUsersList();
         clearRankingList();
+        countdownDiv.textContent = "";
+        hasCountdownStarted = false;
+        if (countdownTimer) {
+          clearInterval(countdownTimer);
+          countdownTimer = null;
+        }
       })
       .catch((err) => {
         showMessage("Error al reiniciar: " + err.message);
@@ -312,16 +322,28 @@
     // ———————— 4. Listener de sala para actualizar UI ————————
 
     function listenToRoom(roomId) {
+      hasCountdownStarted = false;
+      countdownValue = 15;
+      countdownDiv.textContent = "";
+
       // Escuchar usuarios
       const usersRef = ref(db, `salas/${roomId}/users`);
       onValue(usersRef, (snapshot) => {
         const users = snapshot.val() || {};
+        const userList = Object.keys(users);
+
+        // Actualiza lista de usuarios
         usersListUl.innerHTML = "";
-        Object.keys(users).forEach(user => {
+        userList.forEach(user => {
           const li = document.createElement("li");
           li.textContent = user;
           usersListUl.appendChild(li);
         });
+
+        // Si hay 3 o más jugadores y no hemos iniciado la cuenta atrás: arrancar
+        if (userList.length >= 3 && !hasCountdownStarted) {
+          startCountdown();
+        }
       });
 
       // Escuchar ranking (scores)
@@ -357,12 +379,134 @@
       });
     }
 
-    // ———————— 5. Eventos botones ————————
+    // ———————— 5. Lógica de cuenta atrás ————————
+
+    function startCountdown() {
+      hasCountdownStarted = true;
+      countdownDiv.textContent = `Comienza en ${countdownValue} s`;
+      countdownTimer = setInterval(() => {
+        countdownValue--;
+        if (countdownValue > 0) {
+          countdownDiv.textContent = `Comienza en ${countdownValue} s`;
+        } else {
+          clearInterval(countdownTimer);
+          countdownDiv.textContent = "¡Arranca el juego!";
+          // Esperamos medio segundo para que el usuario vea el texto “¡Arranca el juego!”
+          setTimeout(() => {
+            transitionToQuiz();
+          }, 500);
+        }
+      }, 1000);
+    }
+
+    // ———————— 6. Transición a pantalla de Quiz ————————
+
+    function transitionToQuiz() {
+      joinScreenDiv.classList.add("hidden");
+      quizScreenDiv.classList.remove("hidden");
+      startQuiz();
+    }
+
+    // ———————— 7. Lógica básica de Quiz ————————
+
+    function startQuiz() {
+      currentQuestionIndex = 0;
+      showQuestion();
+      showScores();
+    }
+
+    function showQuestion() {
+      const qObj = questions[currentQuestionIndex];
+      quizQuestionText.textContent = qObj.text;
+      quizOptionsDiv.innerHTML = "";
+      qObj.options.forEach((opt, idx) => {
+        const btn = document.createElement("button");
+        btn.textContent = opt;
+        btn.addEventListener("click", () => {
+          handleAnswer(idx);
+        });
+        quizOptionsDiv.appendChild(btn);
+      });
+    }
+
+    function handleAnswer(selectedIndex) {
+      const qObj = questions[currentQuestionIndex];
+      const isCorrect = selectedIndex === qObj.correctIndex;
+      if (isCorrect) {
+        // Incrementar score en Firebase
+        runTransaction(ref(db, `salas/${currentRoomId}/scores/${currentUserName}`), (current) => {
+          return (current || 0) + 1;
+        });
+      }
+      // Pasar a siguiente pregunta o finalizar
+      currentQuestionIndex++;
+      if (currentQuestionIndex < questions.length) {
+        showQuestion();
+      } else {
+        endQuiz();
+      }
+    }
+
+    function showScores() {
+      // Escuchar continuamente los scores y mostrarlos
+      const scoresRef = ref(db, `salas/${currentRoomId}/scores`);
+      onValue(scoresRef, (snapshot) => {
+        const scores = snapshot.val() || {};
+        quizScoresDiv.innerHTML = "<h4>Marcadores:</h4>";
+        Object.entries(scores)
+          .sort((a,b) => b[1] - a[1])
+          .forEach(([user, score]) => {
+            const div = document.createElement("div");
+            div.classList.add("score-item");
+            div.textContent = `${user}: ${score} pts`;
+            quizScoresDiv.appendChild(div);
+          });
+      });
+    }
+
+    function endQuiz() {
+      // Determinar ganador
+      const scoresRef = ref(db, `salas/${currentRoomId}/scores`);
+      onValue(scoresRef, (snapshot) => {
+        const scores = snapshot.val() || {};
+        const sorted = Object.entries(scores).sort((a,b) => b[1] - a[1]);
+        if (sorted.length) {
+          const [winnerName, winnerScore] = sorted[0];
+          winnerDiv.innerHTML = `<h3>¡Ganador: ${winnerName} con ${winnerScore} pts!</h3>`;
+        } else {
+          winnerDiv.textContent = "No hay participantes.";
+        }
+        // Después de 5 s, volvemos a “Join Room”
+        setTimeout(() => {
+          resetToJoin();
+        }, 5000);
+      }, { onlyOnce: true });
+    }
+
+    function resetToJoin() {
+      // Limpiar variables y UI
+      quizQuestionText.textContent = "";
+      quizOptionsDiv.innerHTML = "";
+      quizScoresDiv.innerHTML = "";
+      winnerDiv.textContent = "";
+
+      joinScreenDiv.classList.remove("hidden");
+      quizScreenDiv.classList.add("hidden");
+      clearUsersList();
+      clearRankingList();
+      countdownDiv.textContent = "";
+      hasCountdownStarted = false;
+      if (countdownTimer) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+      }
+    }
+
+    // ———————— 8. Eventos botones ————————
 
     btnCreateRoom.addEventListener("click", createRoom);
     btnJoinRoom.addEventListener("click", joinRoom);
     btnResetAll.addEventListener("click", resetAll);
-
   </script>
 </body>
 </html>
