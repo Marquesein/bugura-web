@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Bugura Quiz</title>
+  <title>Bugura Quiz (Web - Turnos compatibles con Chrome)</title>
   <style>
     /* ————————————————————————————————————————————————————
-       Estilos para modo oscuro y responsive
+       Estilos para modo oscuro y diseño responsive
        ———————————————————————————————————————————————————— */
     body {
       margin: 0;
@@ -160,8 +160,7 @@
       set,
       onValue,
       runTransaction,
-      remove,
-      update
+      remove
     } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
     // 1) Configuración de Firebase: Mismo proyecto que Android
@@ -298,13 +297,8 @@
       });
     }
 
-    // 7) LISTENER a “salas/{roomId}/usuarios” y a “salas/{roomId}/state”
-    function listenToRoom(roomId) {
-      hasCountdownStarted = false;
-      countdownValue = 15;
-      countdownDiv.textContent = "";
-
-      // 7.a) Escuchar “salas/{roomId}/usuarios”
+    // 7) LISTENER a “salas/{roomId}/usuarios”
+    function listenToUsers(roomId) {
       const usuariosRef = ref(db, `salas/${roomId}/usuarios`);
       onValue(usuariosRef, snapshot => {
         const users = snapshot.val() || {};
@@ -323,48 +317,79 @@
           startCountdown();
         }
       });
+    }
 
-      // 7.b) Escuchar “salas/{roomId}/state” para manejar turno, pregunta y puntuaciones
-      const stateRef = ref(db, `salas/${roomId}/state`);
-      onValue(stateRef, snapshot => {
-        const state = snapshot.val();
-        if (!state) return;
+    // 8) LISTENER a “salas/{roomId}/state/turnIndex” y “salas/{roomId}/state/questionIndex” y “state/scores”
+    function listenToState(roomId) {
+      // 8.a) Listener para turnIndex
+      const turnRef = ref(db, `salas/${roomId}/state/turnIndex`);
+      onValue(turnRef, snapshot => {
+        const turnIndex = snapshot.val();
+        if (turnIndex === null || turnIndex === undefined) return;
+        // Tomamos lista de jugadores (orden alfabético) y calculamos el que toca
+        const scoresRef = ref(db, `salas/${roomId}/state/scores`);
+        onValue(scoresRef, scoresSnap => {
+          const scores = scoresSnap.val() || {};
+          const userList = Object.keys(scores).sort(); // idéntico a Android
+          if (userList.length === 0) return;
+          const currentPlayer = userList[turnIndex % userList.length];
+          // Mostrar turno en pantalla
+          turnIndicatorDiv.textContent = `Turno de: ${currentPlayer}`;
+          // Si no es mi turno, deshabilitar botones:
+          if (currentPlayer !== currentUserName) {
+            disableAllOptionButtons();
+          }
+        });
+      });
 
-        const turnIndex     = state.turnIndex || 0;
-        const questionIndex = state.questionIndex || 0;
-        const scores        = state.scores || {};
-        const userList = Object.keys(scores); 
-        // Orden alfabético para determinismo
-        userList.sort();
-
-        // Mostrar marcador actualizado
-        updateRankingUI(scores);
-
-        // Si questionIndex >= número de preguntas → fin
+      // 8.b) Listener para questionIndex
+      const qRef = ref(db, `salas/${roomId}/state/questionIndex`);
+      onValue(qRef, snapshot => {
+        const questionIndex = snapshot.val();
+        if (questionIndex === null || questionIndex === undefined) return;
+        // Si ya no hay preguntas (>= length), finalizamos
         if (questionIndex >= questions.length) {
-          endQuizUI(scores);
+          // En ese caso, acabamos el quiz
+          endQuizUI();
           return;
         }
+        // Mostrar la pregunta actual (pero opciones se generan en showQuestionUI)
+        const turnIndexRef = ref(db, `salas/${roomId}/state/turnIndex`);
+        onValue(turnIndexRef, turnSnap => {
+          const turnIndex = turnSnap.val();
+          if (turnIndex === null || turnIndex === undefined) return;
+          // Calculamos quién toca mostrar la pantalla y opciones:
+          const scoresRef = ref(db, `salas/${roomId}/state/scores`);
+          onValue(scoresRef, scoresSnap => {
+            const scores = scoresSnap.val() || {};
+            const userList = Object.keys(scores).sort();
+            if (userList.length === 0) return;
+            const currentPlayer = userList[turnIndex % userList.length];
+            showQuestionUI(questionIndex, currentPlayer);
+          });
+        });
+      });
 
-        // Determinar jugador actual
-        const currentPlayer = userList.length ? userList[turnIndex % userList.length] : null;
-
-        // Mostrar pregunta y opciones
-        showQuestionUI(questionIndex, currentPlayer);
-
-        // Indicar turno en pantalla
-        turnIndicatorDiv.textContent = currentPlayer
-          ? `Turno de: ${currentPlayer}`
-          : "Esperando jugadores...";
-
-        // Si no es mi turno, deshabilitar botones
-        if (currentPlayer !== currentUserName) {
-          disableAllOptionButtons();
-        }
+      // 8.c) Listener para scores: actualiza ranking y marcadores en Quiz
+      const scoresRef = ref(db, `salas/${roomId}/state/scores`);
+      onValue(scoresRef, snapshot => {
+        const scores = snapshot.val() || {};
+        updateRankingUI(scores);
+        // También, si estamos en Quiz y no es mi turno, deshabilito botones
+        const turnRef2 = ref(db, `salas/${roomId}/state/turnIndex`);
+        onValue(turnRef2, turnSnap2 => {
+          const turnIndex2 = turnSnap2.val();
+          const userList2 = Object.keys(scores).sort();
+          if (userList2.length === 0) return;
+          const currentPlayer2 = userList2[turnIndex2 % userList2.length];
+          if (currentPlayer2 !== currentUserName) {
+            disableAllOptionButtons();
+          }
+        });
       });
     }
 
-    // 8) CUENTA ATRÁS (15 s) y luego transición a “Quiz”
+    // 9) CUENTA ATRÁS (15 s) y luego transición a Quiz
     function startCountdown() {
       hasCountdownStarted = true;
       countdownDiv.textContent = `Comienza en ${countdownValue} s`;
@@ -382,15 +407,18 @@
       }, 1000);
     }
 
-    // 9) TRANSICIÓN a Quiz
+    // 10) TRANSICIÓN a Quiz
     function transitionToQuiz() {
       joinScreenDiv.classList.add("hidden");
       quizScreenDiv.classList.remove("hidden");
-      // Empieza el quiz: el listener de state se encargará de mostrar la primera pregunta
+      // Cuando entramos en Quiz, arrancamos los listeners de Turnos/Preguntas
+      listenToState(currentRoomId);
     }
 
-    // 10) Mostrar pregunta y opciones basadas en questionIndex
+    // 11) Mostrar pregunta y opciones basadas en questionIndex & currentPlayer
     function showQuestionUI(questionIndex, currentPlayer) {
+      // Si la pregunta ya pasó el array, salimos
+      if (questionIndex >= questions.length) return;
       const qObj = questions[questionIndex];
       quizQuestionText.textContent = qObj.text;
       quizOptionsDiv.innerHTML = "";
@@ -398,20 +426,21 @@
       qObj.options.forEach((opt, idx) => {
         const btn = document.createElement("button");
         btn.textContent = opt;
-        btn.disabled = currentPlayer !== currentUserName;
+        // Solo habilitamos si soy el jugador actual
+        btn.disabled = (currentPlayer !== currentUserName);
         btn.addEventListener("click", () => handleAnswer(idx));
         quizOptionsDiv.appendChild(btn);
       });
     }
 
-    // 11) Deshabilitar todos los botones de opción (cuando no es mi turno)
+    // 12) Deshabilitar todos los botones de opción
     function disableAllOptionButtons() {
       Array.from(quizOptionsDiv.children).forEach(child => {
         if (child.tagName === "BUTTON") child.disabled = true;
       });
     }
 
-    // 12) Actualizar marcador en UI (ランキング)
+    // 13) Actualizar marcador en UI (ランキング)
     function updateRankingUI(scores) {
       // Ordenar desc por puntuación
       const sorted = Object.entries(scores).sort((a,b) => b[1] - a[1]);
@@ -434,20 +463,21 @@
       });
     }
 
-    // 13) Manejar respuesta cuando es mi turno
+    // 14) Manejar respuesta cuando es mi turno
     function handleAnswer(selectedIndex) {
       const stateRef = ref(db, `salas/${currentRoomId}/state`);
       runTransaction(stateRef, state => {
         if (!state) return state;
         const qIndex = state.questionIndex || 0;
-        if (qIndex >= questions.length) return state; // ya terminado
-        const qObj = questions[qIndex];
-        // Solo el jugador en turno puede ejecutar este bloque
         const scores = state.scores || {};
-        const userList = Object.keys(scores).sort();
+        const userList = Object.keys(scores).sort(); // idéntico a Android
         const turnIndex = state.turnIndex || 0;
         const currentPlayer = userList.length ? userList[turnIndex % userList.length] : null;
+        // Solo el jugador correcto ejecuta este bloque
         if (currentPlayer !== currentUserName) return state;
+
+        const qObj = questions[qIndex];
+        if (!qObj) return state;
 
         // Si acierta, incrementar su puntuación
         if (selectedIndex === qObj.correctIndex) {
@@ -456,32 +486,46 @@
 
         // Avanzar turno
         const nextTurn = (turnIndex + 1) % userList.length;
-        // Si volvemos a turno 0, significa que todos respondieron esta ronda → avanzar pregunta
+        // Si regreso a 0, significa que acabamos la ronda → avanzamos pregunta
         if (nextTurn === 0) {
           state.questionIndex = (qIndex + 1);
         }
         state.turnIndex = nextTurn;
         return state;
+      }, {
+        // Callback de error (nos ayuda a depurar en consola de Chrome)
+        onComplete: (err, committed, snapshot) => {
+          if (err) console.error("runTransaction error:", err);
+          if (!committed) console.warn("Transaction no fue comprometida");
+          // snapshot ya trae el nuevo state
+        }
       });
     }
 
-    // 14) Finalizar quiz en UI
-    function endQuizUI(finalScores) {
-      // Determinar ganador
-      const sorted = Object.entries(finalScores).sort((a,b) => b[1] - a[1]);
-      if (sorted.length) {
-        const [winnerName, winnerScore] = sorted[0];
-        winnerDiv.innerHTML = `<h3>¡Ganador: ${winnerName} con ${winnerScore} pts!</h3>`;
-      } else {
-        winnerDiv.textContent = "No hay participantes.";
-      }
+    // 15) Finalizar quiz en UI
+    function endQuizUI() {
+      // Leemos finalScores directamente (podríamos haberlos memorizado antes)
+      const scoresRef = ref(db, `salas/${currentRoomId}/state/scores`);
+      onValue(scoresRef, snap => {
+        const finalScores = snap.val() || {};
+        const sorted = Object.entries(finalScores).sort((a,b) => b[1] - a[1]);
+        if (sorted.length) {
+          const [winnerName, winnerScore] = sorted[0];
+          winnerDiv.innerHTML = `<h3>¡Ganador: ${winnerName} con ${winnerScore} pts!</h3>`;
+        } else {
+          winnerDiv.textContent = "No hay participantes.";
+        }
+      }, {
+        onlyOnce: true
+      });
+
       // Después de 5 s, volver a Join Room
       setTimeout(() => {
         resetToJoin();
       }, 5000);
     }
 
-    // 15) Resetear a Join Room
+    // 16) Resetear a Join Room
     function resetToJoin() {
       quizQuestionText.textContent = "";
       turnIndicatorDiv.textContent = "";
@@ -501,10 +545,13 @@
       }
     }
 
-    // 16) Eventos de botón
+    // 17) Eventos de botón
     btnCreateRoom.addEventListener("click", createRoom);
     btnJoinRoom.addEventListener("click", joinRoom);
     btnResetAll.addEventListener("click", resetAll);
+
+    // 18) Arrancar listener de usuarios en cuanto se cargue la página (opcional)
+    //     pero realmente espera a crear o unirse a la sala
   </script>
 </body>
 </html>
