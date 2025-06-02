@@ -186,7 +186,7 @@
     let countdownTimer      = null;
     let hasCountdownStarted = false;
     let countdownValue      = 15;
-    let userListGlobal      = []; // Lista ordenada de usuarios
+    let userListGlobal      = [];
 
     // Referencias DOM
     const joinScreenDiv    = document.getElementById("join-screen");
@@ -211,7 +211,6 @@
       { text: "¿Capital de Francia?", options: ["Londres","Madrid","París","Berlín"], correctIndex: 2 },
       { text: "¿5 + 7 = ?",         options: ["10","12","11","14"],       correctIndex: 1 },
       { text: "¿Color del cielo?",  options: ["Verde","Azul","Rojo","Amarillo"], correctIndex: 1 }
-      // Podés añadir más preguntas si querés.
     ];
 
     // Mostrar mensaje temporal
@@ -242,9 +241,7 @@
         questionIndex: 0,
         scores: { [userName]: 0 }
       })
-      .then(() => {
-        return set(ref(db, `salas/${roomId}/usuarios/${userName}`), true);
-      })
+      .then(() => set(ref(db, `salas/${roomId}/usuarios/${userName}`), true))
       .then(() => {
         listenToUsers(roomId);
         showMessage(`Sala creada: ${roomId}`);
@@ -266,9 +263,7 @@
       currentUserName = userName;
 
       set(ref(db, `salas/${roomId}/usuarios/${userName}`), true)
-      .then(() => {
-        return set(ref(db, `salas/${roomId}/state/scores/${userName}`), 0);
-      })
+      .then(() => set(ref(db, `salas/${roomId}/state/scores/${userName}`), 0))
       .then(() => {
         listenToUsers(roomId);
         showMessage(`Unido a la sala: ${roomId}`);
@@ -297,7 +292,7 @@
       });
     }
 
-    // Escuchar usuarios en sala, actualizar lista y arrancar cuenta atrás si hay 3+
+    // Escuchar usuarios en sala y actualizar lista
     function listenToUsers(roomId) {
       hasCountdownStarted = false;
       countdownValue = 15;
@@ -309,7 +304,6 @@
         const userList = Object.keys(usersObj).sort();
         userListGlobal = userList;
 
-        // Actualizar UI de usuarios
         usersListUl.innerHTML = "";
         userList.forEach(user => {
           const li = document.createElement("li");
@@ -317,28 +311,27 @@
           usersListUl.appendChild(li);
         });
 
-        // Arrancar cuenta atrás si hay 3 o más jugadores
         if (userList.length >= 3 && !hasCountdownStarted) {
           startCountdown();
         }
       });
     }
 
-    // Escuchar estado completo y manejar lógica de turno/pregunta/puntuación
+    // Escuchar el estado completo y manejar turno/pregunta/puntuación
     function listenToState(roomId) {
       const stateRef = ref(db, `salas/${roomId}/state`);
       onValue(stateRef, snapshot => {
         const state = snapshot.val();
         if (!state) return;
 
-        const turnIndex     = state.turnIndex      ?? 0;
-        const questionIndex = state.questionIndex  ?? 0;
-        const scores        = state.scores         || {};
+        let turnIndex     = state.turnIndex      ?? 0;
+        let questionIndex = state.questionIndex  ?? 0;
+        const scores      = state.scores         || {};
 
-        // Mostrar puntuaciones en medio de la partida
+        // Mostrar puntuaciones
         updateQuizScoresUI(scores);
 
-        // Comprobar si alguien alcanzó 10 puntos
+        // Comprobar ganador
         for (const [user, pts] of Object.entries(scores)) {
           if (pts >= 10) {
             showWinner(user);
@@ -346,20 +339,17 @@
           }
         }
 
-        // Si la pregunta supera el total, no mostrar más
-        if (questionIndex >= questions.length) return;
+        // Normalizar índices usando módulo
+        turnIndex     = turnIndex % userListGlobal.length;
+        questionIndex = questionIndex % questions.length;
 
-        // Mostrar turno y pregunta
-        const userList = userListGlobal;
-        if (!userList || userList.length === 0) return;
-
-        const currentPlayer = userList[turnIndex % userList.length];
+        const currentPlayer = userListGlobal[turnIndex];
         turnIndicatorDiv.textContent = `Turno de: ${currentPlayer}`;
         showQuestionUI(questionIndex, currentPlayer);
       });
     }
 
-    // Cuenta atrás y luego arrancar el juego
+    // Cuenta atrás y arranque del juego
     function startCountdown() {
       hasCountdownStarted = true;
       countdownDiv.textContent = `Comienza en ${countdownValue} s`;
@@ -370,26 +360,21 @@
         } else {
           clearInterval(countdownTimer);
           countdownDiv.textContent = "¡Arranca el juego!";
-          setTimeout(() => {
-            transitionToQuiz();
-          }, 500);
+          setTimeout(() => transitionToQuiz(), 500);
         }
       }, 1000);
     }
 
-    // Transición de Join Room a Quiz
+    // Pasar de Join Room a Quiz
     function transitionToQuiz() {
       joinScreenDiv.classList.add("hidden");
       quizScreenDiv.classList.remove("hidden");
       listenToState(currentRoomId);
     }
 
-    // Mostrar pregunta y opciones al jugador cuyo turno sea
+    // Mostrar pregunta y habilitar solo al jugador correspondiente
     function showQuestionUI(questionIndex, currentPlayer) {
-      // Si fuera fuera de rango, no hacer nada
-      if (questionIndex >= questions.length) return;
-
-      const qObj = questions[questionIndex];
+      const qObj = questions[questionIndex % questions.length];
       quizQuestionText.textContent = qObj.text;
       quizOptionsDiv.innerHTML = "";
 
@@ -442,29 +427,27 @@
       runTransaction(stateRef, state => {
         if (!state) return state;
 
-        const qIndex    = state.questionIndex || 0;
-        const scores    = state.scores        || {};
-        const turnIndex = state.turnIndex     || 0;
-        const userList  = userListGlobal;
+        let qIndex    = state.questionIndex  ?? 0;
+        let turnIndex = state.turnIndex     ?? 0;
+        const scores  = state.scores        || {};
+        const userList = userListGlobal;
         if (!userList || userList.length === 0) return state;
 
         const currentPlayer = userList[turnIndex % userList.length];
         if (currentPlayer !== currentUserName) return state;
 
-        const qObj = questions[qIndex];
+        const qObj = questions[qIndex % questions.length];
         if (!qObj) return state;
 
         const isCorrect = (selectedIndex === qObj.correctIndex);
         if (isCorrect) {
           scores[currentUserName] = (scores[currentUserName] || 0) + 1;
+          qIndex = qIndex + 1; // Sólo avanzar pregunta si acierta
         }
+        turnIndex = (turnIndex + 1) % userList.length;
 
-        const nextTurn     = (turnIndex + 1) % userList.length;
-        // SOLO aumentar pregunta si es correcto
-        const nextQuestion = isCorrect ? qIndex + 1 : qIndex;
-
-        state.turnIndex     = nextTurn;
-        state.questionIndex = nextQuestion;
+        state.turnIndex     = turnIndex;
+        state.questionIndex = qIndex;
         state.scores        = scores;
         return state;
       }, {
