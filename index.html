@@ -454,7 +454,7 @@
         }
 
         const nextTurn     = (turnIndex + 1) % userList.length;
-        const nextQuestion = (nextTurn === 0) ? qIndex + 1 : qIndex;
+        const nextQuestion = qIndex + 1;
 
         state.turnIndex     = nextTurn;
         state.questionIndex = nextQuestion;
@@ -474,7 +474,7 @@
       turnIndicatorDiv.textContent = "";
       countdownDiv.textContent = "";
       quizScoresDiv.innerHTML = "";
-      winnerDiv.textContent = `El ganador es ${user}`;
+      winnerDiv.textContent = `🎉 El ganador es ${user} 🎉`;
       setTimeout(resetToJoin, 5000);
     }
 
