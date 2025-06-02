@@ -17,7 +17,7 @@
       margin: 0 auto;
       padding: 16px;
     }
-    h1,h2,h3,h4 {
+    h1, h2, h3, h4 {
       color: #FFFFFF;
       margin-bottom: 12px;
     }
@@ -346,6 +346,9 @@
           }
         }
 
+        // Si la pregunta supera el total, no mostrar más
+        if (questionIndex >= questions.length) return;
+
         // Mostrar turno y pregunta
         const userList = userListGlobal;
         if (!userList || userList.length === 0) return;
@@ -383,6 +386,9 @@
 
     // Mostrar pregunta y opciones al jugador cuyo turno sea
     function showQuestionUI(questionIndex, currentPlayer) {
+      // Si fuera fuera de rango, no hacer nada
+      if (questionIndex >= questions.length) return;
+
       const qObj = questions[questionIndex];
       quizQuestionText.textContent = qObj.text;
       quizOptionsDiv.innerHTML = "";
@@ -454,6 +460,7 @@
         }
 
         const nextTurn     = (turnIndex + 1) % userList.length;
+        // SOLO aumentar pregunta si es correcto
         const nextQuestion = isCorrect ? qIndex + 1 : qIndex;
 
         state.turnIndex     = nextTurn;
