@@ -164,7 +164,6 @@
       set,
       onValue,
       runTransaction,
-      update,
       remove
     } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
@@ -431,7 +430,7 @@
       });
     }
 
-    // Manejar respuesta y avanzar turno/pregunta
+    // Manejar respuesta y avanzar turno/pregunta según acierto o error
     function handleAnswer(selectedIndex) {
       const stateRef = ref(db, `salas/${currentRoomId}/state`);
       runTransaction(stateRef, state => {
@@ -449,12 +448,13 @@
         const qObj = questions[qIndex];
         if (!qObj) return state;
 
-        if (selectedIndex === qObj.correctIndex) {
+        const isCorrect = (selectedIndex === qObj.correctIndex);
+        if (isCorrect) {
           scores[currentUserName] = (scores[currentUserName] || 0) + 1;
         }
 
-        const nextTurn     = (turnIndex + 1) % userList.length;
-        const nextQuestion = qIndex + 1;
+        const nextTurn = (turnIndex + 1) % userList.length;
+        const nextQuestion = isCorrect ? qIndex + 1 : qIndex;
 
         state.turnIndex     = nextTurn;
         state.questionIndex = nextQuestion;
