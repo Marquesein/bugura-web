@@ -17,7 +17,7 @@
       margin: 0 auto;
       padding: 16px;
     }
-    h1, h2, h3, h4 {
+    h1,h2,h3,h4 {
       color: #FFFFFF;
       margin-bottom: 12px;
     }
@@ -453,7 +453,7 @@
           scores[currentUserName] = (scores[currentUserName] || 0) + 1;
         }
 
-        const nextTurn = (turnIndex + 1) % userList.length;
+        const nextTurn     = (turnIndex + 1) % userList.length;
         const nextQuestion = isCorrect ? qIndex + 1 : qIndex;
 
         state.turnIndex     = nextTurn;
