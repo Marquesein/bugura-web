@@ -110,7 +110,7 @@
       height: 20px;
       fill: gold;
     }
-    /* Estilo para mostrar puntuaciones en medio de la partida */
+    /* Puntuaciones en medio del juego */
     #quiz-scores .score-item {
       display: flex;
       justify-content: space-between;
@@ -121,7 +121,7 @@
 </head>
 <body>
   <div class="container">
-    <!-- ——— Pantalla “Join Room” ——— -->
+    <!-- Pantalla “Join Room” -->
     <div id="join-screen">
       <h1 class="title">Bugura Quiz</h1>
       <input type="text" id="input-room-id" placeholder="ID de la sala" />
@@ -144,7 +144,7 @@
       <ul id="ranking-list"></ul>
     </div>
 
-    <!-- ——— Pantalla “Quiz” ——— -->
+    <!-- Pantalla “Quiz” -->
     <div id="quiz-screen" class="hidden">
       <h2 class="center">Quiz en Curso</h2>
       <div id="quiz-question" class="question-text"></div>
@@ -164,10 +164,11 @@
       set,
       onValue,
       runTransaction,
+      update,
       remove
     } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
 
-    // 1) Configuración de Firebase
+    // Configuración de Firebase
     const firebaseConfig = {
       apiKey: "AIzaSyDAYh1x8p1wbdNEM4nA33y9sWh2Q3MrLxo",
       authDomain: "bugura-cf2cd.firebaseapp.com",
@@ -180,7 +181,7 @@
     const app = initializeApp(firebaseConfig);
     const db  = getDatabase(app);
 
-    // 2) Variables globales
+    // Variables globales
     let currentRoomId       = "";
     let currentUserName     = "";
     let countdownTimer      = null;
@@ -206,15 +207,15 @@
     const winnerDiv        = document.getElementById("winner");
     const rankingListUl    = document.getElementById("ranking-list");
 
-    // Banco de preguntas (idéntico a Android)
+    // Banco de preguntas
     const questions = [
       { text: "¿Capital de Francia?", options: ["Londres","Madrid","París","Berlín"], correctIndex: 2 },
       { text: "¿5 + 7 = ?",         options: ["10","12","11","14"],       correctIndex: 1 },
       { text: "¿Color del cielo?",  options: ["Verde","Azul","Rojo","Amarillo"], correctIndex: 1 }
-      // Podés agregar más preguntas aquí
+      // Podés añadir más preguntas si querés.
     ];
 
-    // 3) Funciones auxiliares
+    // 1) Mostrar mensaje temporal
     function showMessage(txt) {
       messageDiv.textContent = txt;
       setTimeout(() => { messageDiv.textContent = ""; }, 3000);
@@ -226,7 +227,7 @@
       rankingListUl.innerHTML = "";
     }
 
-    // 4) CREATE ROOM
+    // 2) Crear sala e inicializar estado en Firebase
     function createRoom() {
       const roomId   = roomIdInput.value.trim();
       const userName = userNameInput.value.trim();
@@ -254,7 +255,7 @@
       });
     }
 
-    // 5) JOIN ROOM
+    // 3) Unirse a sala y asegurar puntuación inicial
     function joinRoom() {
       const roomId   = roomIdInput.value.trim();
       const userName = userNameInput.value.trim();
@@ -265,7 +266,6 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
-      // Añadimos usuario y su puntuación inicial en Firebase
       set(ref(db, `salas/${roomId}/usuarios/${userName}`), true)
       .then(() => {
         return set(ref(db, `salas/${roomId}/state/scores/${userName}`), 0);
@@ -279,7 +279,7 @@
       });
     }
 
-    // 6) RESET ALL
+    // 4) Reiniciar todas las salas
     function resetAll() {
       remove(ref(db, "salas"))
       .then(() => {
@@ -298,7 +298,7 @@
       });
     }
 
-    // 7) LISTENER a “salas/{roomId}/usuarios”
+    // 5) Escuchar usuarios en sala, actualizar lista y arrancar cuenta atrás si hay 3+
     function listenToUsers(roomId) {
       hasCountdownStarted = false;
       countdownValue = 15;
@@ -308,9 +308,9 @@
       onValue(usuariosRef, snapshot => {
         const usersObj = snapshot.val() || {};
         const userList = Object.keys(usersObj).sort();
-        userListGlobal = userList; // Actualizamos la lista global aquí
+        userListGlobal = userList;
 
-        // Actualizar lista en UI
+        // Actualizar UI de usuarios
         usersListUl.innerHTML = "";
         userList.forEach(user => {
           const li = document.createElement("li");
@@ -318,42 +318,36 @@
           usersListUl.appendChild(li);
         });
 
-        // Si hay ≥ 3 jugadores y aún no arrancó la cuenta atrás, iniciarla
+        // Arrancar cuenta atrás si hay 3 o más jugadores
         if (userList.length >= 3 && !hasCountdownStarted) {
           startCountdown();
         }
       });
     }
 
-    // 8) LISTENER a “salas/{roomId}/state” completo
+    // 6) Escuchar estado completo y manejar lógica de turno/pregunta/puntuación
     function listenToState(roomId) {
       const stateRef = ref(db, `salas/${roomId}/state`);
       onValue(stateRef, snapshot => {
         const state = snapshot.val();
         if (!state) return;
 
-        const turnIndex      = state.turnIndex      ?? 0;
-        const questionIndex  = state.questionIndex  ?? 0;
-        const scores         = state.scores         || {};
+        const turnIndex     = state.turnIndex      ?? 0;
+        const questionIndex = state.questionIndex  ?? 0;
+        const scores        = state.scores         || {};
 
         // Mostrar puntuaciones en medio de la partida
         updateQuizScoresUI(scores);
 
-        // Revisar condición de victoria: 10 puntos
+        // Comprobar si alguien alcanzó 10 puntos
         for (const [user, pts] of Object.entries(scores)) {
           if (pts >= 10) {
-            // Ganador encontrado: terminar
             showWinner(user, pts);
             return;
           }
         }
 
-        // Cuando se han agotado preguntas
-        if (questionIndex >= questions.length) {
-          showFinalScores(scores);
-          return;
-        }
-
+        // Mostrar turno y pregunta
         const userList = userListGlobal;
         if (!userList || userList.length === 0) return;
 
@@ -363,7 +357,7 @@
       });
     }
 
-    // 9) CUENTA ATRÁS (15 s) y luego transición a Quiz
+    // 7) Cuenta atrás y luego arrancar el juego
     function startCountdown() {
       hasCountdownStarted = true;
       countdownDiv.textContent = `Comienza en ${countdownValue} s`;
@@ -381,19 +375,16 @@
       }, 1000);
     }
 
-    // 10) TRANSICIÓN a Quiz
+    // 8) Transición de Join Room a Quiz
     function transitionToQuiz() {
       joinScreenDiv.classList.add("hidden");
       quizScreenDiv.classList.remove("hidden");
-      // Iniciamos escucha de estado general
       listenToState(currentRoomId);
     }
 
-    // 11) Mostrar pregunta y opciones según turno
+    // 9) Mostrar pregunta y opciones al jugador cuyo turno sea
     function showQuestionUI(questionIndex, currentPlayer) {
-      const qObj = questions[questionIndex];
-      if (!qObj) return;
-
+      const qObj = questions[questionIndex % questions.length];
       quizQuestionText.textContent = qObj.text;
       quizOptionsDiv.innerHTML = "";
 
@@ -406,7 +397,7 @@
       });
     }
 
-    // 12) Mostrar puntuaciones en medio de la partida
+    // 10) Actualizar lista de puntuaciones en medio de la partida
     function updateQuizScoresUI(scores) {
       quizScoresDiv.innerHTML = "";
       const entries = Object.entries(scores).sort((a,b) => b[1] - a[1]);
@@ -418,7 +409,7 @@
       });
     }
 
-    // 13) Actualizar ranking final en Join Room
+    // 11) Actualizar ranking en Join Room
     function updateRankingUI(scores) {
       const sorted = Object.entries(scores).sort((a,b) => b[1] - a[1]);
       rankingListUl.innerHTML = "";
@@ -440,31 +431,30 @@
       });
     }
 
-    // 14) Manejar respuesta y avance de turno/pregunta
+    // 12) Manejar respuesta y avanzar turno/pregunta
     function handleAnswer(selectedIndex) {
       const stateRef = ref(db, `salas/${currentRoomId}/state`);
       runTransaction(stateRef, state => {
         if (!state) return state;
 
-        const qIndex      = state.questionIndex || 0;
-        const scores      = state.scores        || {};
-        const turnIndex   = state.turnIndex     || 0;
-        const userList    = userListGlobal;
-
+        const qIndex    = state.questionIndex || 0;
+        const scores    = state.scores        || {};
+        const turnIndex = state.turnIndex     || 0;
+        const userList  = userListGlobal;
         if (!userList || userList.length === 0) return state;
 
         const currentPlayer = userList[turnIndex % userList.length];
         if (currentPlayer !== currentUserName) return state;
 
-        const qObj = questions[qIndex];
+        const qObj = questions[qIndex % questions.length];
         if (!qObj) return state;
 
         if (selectedIndex === qObj.correctIndex) {
           scores[currentUserName] = (scores[currentUserName] || 0) + 1;
         }
 
-        const nextTurn = (turnIndex + 1) % userList.length;
-        const nextQuestion = (nextTurn === 0) ? qIndex + 1 : qIndex;
+        const nextTurn     = (turnIndex + 1) % userList.length;
+        const nextQuestion = qIndex + 1;
 
         state.turnIndex     = nextTurn;
         state.questionIndex = nextQuestion;
@@ -477,7 +467,7 @@
       });
     }
 
-    // 15) Mostrar ganador (al alcanzar 10 pts)
+    // 13) Mostrar ganador cuando llegue a 10 puntos
     function showWinner(user, pts) {
       quizQuestionText.textContent = "";
       quizOptionsDiv.innerHTML = "";
@@ -485,20 +475,10 @@
       countdownDiv.textContent = "";
       quizScoresDiv.innerHTML = "";
       winnerDiv.innerHTML = `<h3>¡Ganador: ${user} con ${pts} pts!</h3>`;
-      // Después de 5s, volver a pantalla de join
       setTimeout(resetToJoin, 5000);
     }
 
-    // 16) Mostrar ranking final si se acaban preguntas
-    function showFinalScores(scores) {
-      quizQuestionText.textContent = "Se acabaron las preguntas.";
-      quizOptionsDiv.innerHTML = "";
-      turnIndicatorDiv.textContent = "";
-      updateQuizScoresUI(scores);
-      setTimeout(resetToJoin, 5000);
-    }
-
-    // 17) Resetear a Join Room
+    // 14) Reset a pantalla Join Room
     function resetToJoin() {
       quizQuestionText.textContent = "";
       turnIndicatorDiv.textContent = "";
@@ -514,12 +494,12 @@
       hasCountdownStarted = false;
       userListGlobal = [];
       if (countdownTimer) {
-        clearInterval(countdownTimer);
+        clearTimeout(countdownTimer);
         countdownTimer = null;
       }
     }
 
-    // 18) Eventos de botón
+    // 15) Enlazar botones
     btnCreateRoom.addEventListener("click", createRoom);
     btnJoinRoom.addEventListener("click", joinRoom);
     btnResetAll.addEventListener("click", resetAll);
