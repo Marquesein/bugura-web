@@ -300,7 +300,7 @@
       { text: "¿Cuál es la ubicación principal en Among Us Airship?", options: ["Flyar", "Skeld", "Polus", "Mira HQ"], correctIndex: 0 },
       { text: "¿Qué juego de la década introdujo el modo multijugador cooperativo L4D2?", options: ["Left 4 Dead 2", "Dead Rising 3", "Dying Light", "Resident Evil 6"], correctIndex: 0 },
       { text: "¿Cuál es la habilidad definitiva de Tracer en Overwatch 2?", options: ["Pulse Bomb", "Blink", "Recall", "Time Warp"], correctIndex: 0 },
-      { text: "¿Qué famoso streamer colaboró con Rocket League para una serie de eventos caritativos en 2020?", options: ["Ninja", "Shroud", "Tfue", "Dr Disrespect"], correctIndex: 2 },
+      { text: "¿Qué famoso streamer colaboró con Rocket League para una serie de eventos caritativas en 2020?", options: ["Ninja", "Shroud", "Tfue", "Dr Disrespect"], correctIndex: 2 },
       { text: "¿En GTA V Online, cuál es la velocidad máxima del Deluxo en modo vuelo?", options: ["190 mph", "180 mph", "200 mph", "195 mph"], correctIndex: 0 },
       { text: "¿Cuál es el nombre de la actualización grande que trajo la isla de Cornwall en Fortnite?", options: ["Capítulo 2", "Capítulo 3", "Capítulo 4", "Capítulo 5"], correctIndex: 1 },
       { text: "¿Qué arma de COD Zombies en Black Ops 4 dispara una barra eléctrica?", options: ["Death Machine", "Tesla Gun", "Staff of Lightning", "Ray Gun Mk II"], correctIndex: 1 },
@@ -323,7 +323,6 @@
           const li = document.createElement("li");
           li.classList.add("list-item");
           li.textContent = `${user}: ${wins} victorias`;
-          // Agregar corona SVG al primer puesto
           if (idx === 0) {
             const crownSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
             crownSvg.setAttribute("viewBox", "0 0 24 24");
@@ -359,9 +358,7 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
-      // Inicializar “state” con:
-      // turnIndex=0, pointer=0, questionOrder=[], scores={userName:0}
-      //   + usedQuestions: {}  (registro de índices que YA se usaron en juegos previos)
+      // Inicializar “state” y “usedQuestions”
       set(ref(db, `salas/${roomId}`), {
         state: {
           turnIndex: 0,
@@ -369,14 +366,14 @@
           questionOrder: [],
           scores: { [userName]: 0 }
         },
-        usedQuestions: {} // objeto vacío para empezar
+        usedQuestions: {}
       })
       .then(() => {
         // Añadir usuario a “usuarios” en esa sala
         return set(ref(db, `salas/${roomId}/usuarios/${userName}`), true);
       })
       .then(() => {
-        listenToGeneralRanking(); // para actualizar ranking global en interfaz
+        listenToGeneralRanking();
         listenToUsers(roomId);
         showMessage(`Sala creada: ${roomId}`);
       })
@@ -459,16 +456,16 @@
 
     // 8) LISTENERS a “state” de la sala: turnIndex, pointer, questionOrder y scores
     function listenToState(roomId) {
-      // A) Listener para cambios en state (se obtiene todo el objeto state de una vez)
+      // A) Listener para cambios en state (se obtiene todo el objeto state)
       const stateRef = ref(db, `salas/${roomId}/state`);
       onValue(stateRef, async snapshot => {
         const state = snapshot.val();
         if (!state) return;
 
-        // Si questionOrder está vacío (quiz aún no generado), generamos orden nuevo:
+        // Si questionOrder está vacío, generamos uno nuevo
         if (!Array.isArray(state.questionOrder) || state.questionOrder.length === 0) {
           await generateNewQuestionOrder(roomId);
-          return; // después de generar, el listener volverá a dispararse con el nuevo state
+          return;
         }
 
         // Si pointer >= questionOrder.length => fin de quiz
@@ -521,8 +518,6 @@
     }
 
     // 11) Mostrar pregunta y opciones basadas en índice de pregunta (questionIndex)
-    //    Aquí, en lugar de usar questionIndex secuencial, usamos directamente el índice
-    //    que viene de questionOrder[state.pointer].
     function showQuestionUI(questionIndex, currentPlayer) {
       if (questionIndex == null) return;
       const qObj = questions[questionIndex];
@@ -554,7 +549,7 @@
     }
 
     // 13) Manejar respuesta (runTransaction con userListGlobal)
-    //     En lugar de incrementar questionIndex, incrementamos pointer.
+    //     Si es correcta, avanza pointer; si es incorrecta, pointer se mantiene y sólo cambia turno.
     function handleAnswer(selectedIndex) {
       const stateRef = ref(db, `salas/${currentRoomId}/state`);
       runTransaction(stateRef, state => {
@@ -573,11 +568,13 @@
         const qObj = questions[questionIdx];
         if (!qObj) return state;
 
-        // Si acierta, suma punto. En ambos casos, avanzamos pointer y turno.
         if (selectedIndex === qObj.correctIndex) {
+          // Acertó: suma punto y avanza pointer
           state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
+          state.pointer = ptr + 1;
         }
-        state.pointer = ptr + 1;
+        // Si falla, pointer no cambia (misma pregunta para siguiente jugador)
+        // En ambos casos, avanzamos turno
         state.turnIndex = (turnIndex + 1) % userList.length;
         return state;
       }, {
@@ -589,41 +586,40 @@
     }
 
     // 14) Finalizar quiz en UI
-    //     Cuando pointer >= questionOrder.length, este método se llama.
-    //     Además, aquí registramos en Firebase todas las preguntas usadas en esta partida,
-    //     para que no se repitan en la siguiente.
     async function endQuizUI(roomId) {
-      // Obtenemos el state actual una vez para saber qué order se usó
+      // Obtener state actual para saber el orden usado
       const stateSnap = await get(ref(db, `salas/${roomId}/state`));
       const state = stateSnap.val();
       const usedOrder = Array.isArray(state?.questionOrder) ? state.questionOrder : [];
 
-      // 1) Mostrar ganador (igual que antes)
+      // 1) Mostrar ganador
       const finalScores = state?.scores || {};
       const sortedScores = Object.entries(finalScores).sort((a,b) => b[1] - a[1]);
       if (sortedScores.length) {
         const [winnerName] = sortedScores[0];
         winnerDiv.innerHTML = `<h3>🎉 ¡El ganador es ${winnerName}! 🎉</h3>`;
+
+        // 2) Actualizar ranking general en Firebase
+        const rankingRef = ref(db, `ranking/${winnerName}`);
+        runTransaction(rankingRef, current => (current || 0) + 1);
       } else {
         winnerDiv.textContent = "No hay participantes.";
       }
 
-      // 2) Marcar en Firebase estas preguntas como “usadas”
+      // 3) Marcar en Firebase estas preguntas como “usadas”
       const updates = {};
       usedOrder.forEach(idx => {
         updates[`salas/${roomId}/usedQuestions/${idx}`] = true;
       });
       await update(ref(db), updates);
 
-      // 3) Después de 5 segundos, reiniciamos a pantalla de Join y limpiamos UI
+      // 4) Después de 5 segundos, reiniciamos a pantalla de Join y limpiamos UI
       setTimeout(() => {
         resetToJoin(roomId);
       }, 5000);
     }
 
     // 15) Resetear a Join Room
-    //     Reinicia la UI, limpia listas y detiene timers.
-    //     Importante: NO se resetea “usedQuestions”—eso persiste entre quizzes.
     async function resetToJoin(roomId) {
       quizQuestionText.textContent = "";
       turnIndicatorDiv.textContent = "";
@@ -643,10 +639,7 @@
         countdownTimer = null;
       }
 
-      // Además, limpiamos el estado del juego (turnIndex, pointer, questionOrder, scores),
-      // pero SIN tocar usedQuestions (para conservarlas).
-      // Luego cada vez que alguien genere/creé de nuevo la sala o se reinicie manualmente,
-      // se invocará createRoom o resetAll y allí se volverá a inicializar usedQuestions.
+      // Limpiar estado del juego, sin tocar usedQuestions
       await set(ref(db, `salas/${roomId}/state`), {
         turnIndex: 0,
         pointer: 0,
@@ -655,36 +648,42 @@
       });
     }
 
-    // 16) Generar nuevo orden aleatorio de preguntas para la sala,
-    //     excluyendo aquellas que ya estén en usedQuestions.
+    // 16) Generar nuevo orden aleatorio de preguntas para la sala
     async function generateNewQuestionOrder(roomId) {
-      // 1) Leer usedQuestions del DB
+      // Obtener usedQuestions de DB
       const usedSnap = await get(ref(db, `salas/${roomId}/usedQuestions`));
       const usedObj = usedSnap.val() || {};
       const usedIndices = new Set(Object.keys(usedObj).map(k => parseInt(k)));
 
-      // 2) Construir array de índices disponibles
+      // Construir array de índices disponibles
       const allIndices = questions.map((_, i) => i);
       const remaining = allIndices.filter(i => !usedIndices.has(i));
 
-      // 3) Si ya no queda ninguna (remaining.length === 0), reiniciamos usedQuestions en DB
+      // Si se agotaron, reiniciar usedQuestions
       if (remaining.length === 0) {
         await set(ref(db, `salas/${roomId}/usedQuestions`), {});
         remaining.push(...allIndices);
       }
 
-      // 4) Mezclar “remaining” de forma aleatoria (Fisher-Yates)
+      // Mezclar “remaining” (Fisher–Yates)
       for (let i = remaining.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
       }
 
-      // 5) Escribir en state.questionOrder el array “remaining” y dejar pointer = 0, turnIndex = 0
+      // Obtener lista de usuarios actuales para inicializar scores
+      const usersSnap = await get(ref(db, `salas/${roomId}/usuarios`));
+      const usersObj = usersSnap.val() || {};
+      const users = Object.keys(usersObj);
+      const initialScores = {};
+      users.forEach(u => { initialScores[u] = 0; });
+
+      // Escribir en state.questionOrder el array “remaining” y reiniciar pointer, turnIndex, scores
       await update(ref(db, `salas/${roomId}/state`), {
         questionOrder: remaining,
         pointer: 0,
         turnIndex: 0,
-        scores: {} // reseteamos puntuaciones para todos; cada jugador ya debería estar en scores=0 por Join/crear
+        scores: initialScores
       });
     }
 
