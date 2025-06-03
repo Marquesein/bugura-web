@@ -407,6 +407,9 @@
       const qObj = questions[questionIndex];
       if (!qObj) return;
 
+      // Para verificar que la propiedad existe:
+      console.log("Mostrando pregunta:", qObj.text, "correctAnswerIndex=", qObj.correctAnswerIndex);
+
       quizQuestionText.textContent = qObj.text;
       quizOptionsDiv.innerHTML = "";
 
@@ -455,10 +458,15 @@
         const qObj = questions[questionIdx];
         if (!qObj) return state;
 
+        console.log("Comparando selectedIndex=", selectedIndex, "contra correctAnswerIndex=", qObj.correctAnswerIndex);
+
         // COMPARAR CON 'correctAnswerIndex'
         if (selectedIndex === qObj.correctAnswerIndex) {
+          console.log("RESPUESTA CORRECTA");
           state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
           state.pointer = ptr + 1;
+        } else {
+          console.log("RESPUESTA INCORRECTA");
         }
         state.turnIndex = (turnIndex + 1) % userList.length;
         return state;
@@ -576,11 +584,16 @@
         const qObj = snapshot.val() || {};
         questions = Object.keys(qObj)
           .sort((a, b) => Number(a) - Number(b))
-          .map(key => ({
-            text: qObj[key].text,
-            options: qObj[key].options,
-            correctAnswerIndex: qObj[key].correctAnswerIndex
-          }));
+          .map(key => {
+            const entry = qObj[key];
+            // Mostrar en consola para verificar
+            console.log("Pregunta cargada desde Firebase:", entry);
+            return {
+              text: entry.text,
+              options: entry.options,
+              correctAnswerIndex: entry.correctAnswerIndex
+            };
+          });
         btnCreateRoom.disabled = false;
         btnJoinRoom.disabled   = false;
       });
