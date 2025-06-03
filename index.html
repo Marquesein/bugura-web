@@ -494,7 +494,11 @@
     async function endQuizUI(roomId) {
       const stateSnap = await get(ref(db, `salas/${roomId}/state`));
       const state = stateSnap.val();
-      const usedOrder = Array.isArray(state?.questionOrder) ? state.questionOrder : [];
+
+      // Solo marcamos las preguntas hasta el pointer como usadas
+      const ptr = state?.pointer || 0;
+      const fullOrder = Array.isArray(state?.questionOrder) ? state.questionOrder : [];
+      const usedOrder = fullOrder.slice(0, ptr);
 
       const finalScores = state?.scores || {};
       const sortedScores = Object.entries(finalScores).sort((a, b) => b[1] - a[1]);
