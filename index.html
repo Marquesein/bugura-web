@@ -181,8 +181,9 @@
     let countdownTimer      = null;
     let hasCountdownStarted = false;
     let countdownValue      = 15;
-    let userListGlobal      = [];
-    let questions          = [];
+    let userListGlobal      = []; // Lista ordenada de usuarios
+    let questions           = [];
+    let gameEnded           = false;
 
     // Referencias DOM
     const joinScreenDiv    = document.getElementById("join-screen");
@@ -208,7 +209,7 @@
       onValue(rankRef, snapshot => {
         const ranking = snapshot.val() || {};
         const sorted = Object.entries(ranking)
-          .sort((a,b) => b[1] - a[1]);
+          .sort((a, b) => b[1] - a[1]);
 
         rankingListUl.innerHTML = "";
         sorted.forEach(([user, wins], idx) => {
@@ -250,6 +251,7 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
+      // Inicializar “state” y “usedQuestions”
       set(ref(db, `salas/${roomId}`), {
         state: {
           turnIndex: 0,
@@ -279,6 +281,7 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
+      // Añadir usuario a “usuarios” y asegurar que tenga puntuación en state
       set(ref(db, `salas/${roomId}/usuarios/${userName}`), true)
       .then(() => set(ref(db, `salas/${roomId}/state/scores/${userName}`), 0))
       .then(() => {
@@ -325,6 +328,7 @@
           usersListUl.appendChild(li);
         });
 
+        // Si hay al menos 3 jugadores, arranca cuenta atrás (una sola vez)
         if (userList.length >= 3 && !hasCountdownStarted) {
           startCountdown();
         }
@@ -333,28 +337,50 @@
 
     // 8) LISTENERS a “state” de la sala
     function listenToState(roomId) {
+      // A) Listener para cambios en state (se obtiene todo el objeto state)
       const stateRef = ref(db, `salas/${roomId}/state`);
       onValue(stateRef, async snapshot => {
         const state = snapshot.val();
         if (!state) return;
 
+        // 1) Detectar si hay un ganador (≥10 puntos). Solo una vez.
+        if (!gameEnded) {
+          const scores = state.scores || {};
+          for (const [user, pts] of Object.entries(scores)) {
+            if (pts >= 10) {
+              gameEnded = true;
+              endQuizUI(roomId);
+              return;
+            }
+          }
+        }
+
+        // 2) Si questionOrder está vacío, generamos uno nuevo
         if (!Array.isArray(state.questionOrder) || state.questionOrder.length === 0) {
           await generateNewQuestionOrder(roomId);
           return;
         }
+
+        // 3) Si pointer >= questionOrder.length => fin de quiz (marcar usadas)
         if (state.pointer >= state.questionOrder.length) {
-          endQuizUI(roomId);
+          if (!gameEnded) {
+            gameEnded = true;
+            endQuizUI(roomId);
+          }
           return;
         }
 
+        // 4) Mostrar turno y pregunta actual
         const turnIndex = state.turnIndex || 0;
         const userList = userListGlobal;
         if (!Array.isArray(userList) || userList.length === 0) return;
         const currentPlayer = userList[turnIndex % userList.length];
         turnIndicatorDiv.textContent = `Turno de: ${currentPlayer}`;
+
         showQuestionUI(state.questionOrder[state.pointer], currentPlayer);
       });
 
+      // B) Listener para scores: actualiza ranking de la partida en UI
       const scoresRef = ref(db, `salas/${roomId}/state/scores`);
       onValue(scoresRef, snapshot => {
         const scores = snapshot.val() || {};
@@ -387,9 +413,9 @@
       listenToState(currentRoomId);
     }
 
-    // 11) Mostrar pregunta y opciones
+    // 11) Mostrar pregunta y opciones basadas en índice de pregunta (questionIndex)
     function showQuestionUI(questionIndex, currentPlayer) {
-      if (questionIndex == null || !Array.isArray(questions)) return;
+      if (questionIndex == null) return;
       const qObj = questions[questionIndex];
       if (!qObj) return;
 
@@ -400,16 +426,20 @@
         const btn = document.createElement("button");
         btn.textContent = opt;
         btn.disabled = (currentPlayer !== currentUserName);
-        btn.addEventListener("click", () => handleAnswer(idx));
+        btn.addEventListener("click", () => {
+          btn.disabled = true; // Deshabilitamos inmediatamente tras el clic
+          handleAnswer(idx);
+        });
         quizOptionsDiv.appendChild(btn);
       });
     }
 
-    // 12) Actualizar ranking de la partida
+    // 12) Actualizar ranking de la partida en UI
     function updateRankingUI(scores) {
       quizScoresDiv.innerHTML = "";
+      // Ordenar por puntaje descendente
       const sorted = Object.entries(scores)
-        .sort((a,b) => b[1] - a[1]);
+        .sort((a, b) => b[1] - a[1]);
       sorted.forEach(([user, score]) => {
         const div = document.createElement("div");
         div.textContent = `${user}: ${score} pts`;
@@ -417,7 +447,7 @@
       });
     }
 
-    // 13) Manejar respuesta
+    // 13) Manejar respuesta (runTransaction con userListGlobal)
     function handleAnswer(selectedIndex) {
       const stateRef = ref(db, `salas/${currentRoomId}/state`);
       runTransaction(stateRef, state => {
@@ -437,9 +467,11 @@
         if (!qObj) return state;
 
         if (selectedIndex === qObj.correctIndex) {
+          // Acertó: suma punto y avanza pointer
           state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
           state.pointer = ptr + 1;
         }
+        // En ambos casos, avanzamos turno
         state.turnIndex = (turnIndex + 1) % userList.length;
         return state;
       }, {
@@ -450,30 +482,38 @@
       });
     }
 
-    // 14) Finalizar quiz y mostrar ganador
+    // 14) Finalizar quiz en UI
     async function endQuizUI(roomId) {
+      // 1) Obtener state actual para saber el orden usado
       const stateSnap = await get(ref(db, `salas/${roomId}/state`));
       const state = stateSnap.val();
       const usedOrder = Array.isArray(state?.questionOrder) ? state.questionOrder : [];
 
+      // 2) Mostrar ganador o mensaje
       const finalScores = state?.scores || {};
-      const sortedScores = Object.entries(finalScores).sort((a,b) => b[1] - a[1]);
+      const sortedScores = Object.entries(finalScores).sort((a, b) => b[1] - a[1]);
       if (sortedScores.length) {
         const [winnerName] = sortedScores[0];
         winnerDiv.innerHTML = `<h3>🎉 ¡El ganador es ${winnerName}! 🎉</h3>`;
+
+        // 3) Actualizar ranking general en Firebase
         const rankingRef = ref(db, `ranking/${winnerName}`);
         runTransaction(rankingRef, current => (current || 0) + 1);
       } else {
         winnerDiv.textContent = "No hay participantes.";
       }
 
+      // 4) Marcar en Firebase estas preguntas como “usadas”
       const updates = {};
       usedOrder.forEach(idx => {
         updates[`salas/${roomId}/usedQuestions/${idx}`] = true;
       });
       await update(ref(db), updates);
 
-      setTimeout(() => resetToJoin(roomId), 5000);
+      // 5) Después de 5 segundos, reiniciamos a pantalla de Join y limpiamos UI
+      setTimeout(() => {
+        resetToJoin(roomId);
+      }, 5000);
     }
 
     // 15) Resetear a Join Room
@@ -491,11 +531,13 @@
       countdownDiv.textContent = "";
       hasCountdownStarted = false;
       userListGlobal = [];
+      gameEnded = false; // Reiniciar bandera para la próxima partida
       if (countdownTimer) {
         clearInterval(countdownTimer);
         countdownTimer = null;
       }
 
+      // Limpiar estado del juego (sin tocar usedQuestions)
       await set(ref(db, `salas/${roomId}/state`), {
         turnIndex: 0,
         pointer: 0,
@@ -504,31 +546,37 @@
       });
     }
 
-    // 16) Generar nuevo orden aleatorio de preguntas
+    // 16) Generar nuevo orden aleatorio de preguntas para la sala
     async function generateNewQuestionOrder(roomId) {
+      // Obtener usedQuestions de DB
       const usedSnap = await get(ref(db, `salas/${roomId}/usedQuestions`));
       const usedObj = usedSnap.val() || {};
       const usedIndices = new Set(Object.keys(usedObj).map(k => parseInt(k)));
 
+      // Construir array de índices disponibles
       const allIndices = questions.map((_, i) => i);
       const remaining = allIndices.filter(i => !usedIndices.has(i));
 
+      // Si se agotaron, reiniciar usedQuestions
       if (remaining.length === 0) {
         await set(ref(db, `salas/${roomId}/usedQuestions`), {});
         remaining.push(...allIndices);
       }
 
+      // Mezclar “remaining” (Fisher–Yates)
       for (let i = remaining.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
       }
 
+      // Obtener lista de usuarios actuales para inicializar scores
       const usersSnap = await get(ref(db, `salas/${roomId}/usuarios`));
       const usersObj = usersSnap.val() || {};
       const users = Object.keys(usersObj);
       const initialScores = {};
       users.forEach(u => { initialScores[u] = 0; });
 
+      // Escribir en state.questionOrder el array “remaining” y reiniciar pointer, turnIndex, scores
       await update(ref(db, `salas/${roomId}/state`), {
         questionOrder: remaining,
         pointer: 0,
@@ -543,8 +591,9 @@
       onValue(questionsRef, snapshot => {
         const qObj = snapshot.val() || {};
         questions = Object.keys(qObj)
-          .sort((a,b) => Number(a) - Number(b))
+          .sort((a, b) => Number(a) - Number(b))
           .map(key => qObj[key]);
+        // Ahora que cargaron preguntas, habilitamos botones
         btnCreateRoom.disabled = false;
         btnJoinRoom.disabled   = false;
       });
