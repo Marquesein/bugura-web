@@ -425,15 +425,21 @@
       const qObj = questions[questionIndex];
       if (!qObj) return;
 
+      // Escribimos el texto de la pregunta
       quizQuestionText.textContent = qObj.text;
       quizOptionsDiv.innerHTML = "";
 
+      // Decidimos si es mi turno
+      const soyMiTurno = (currentPlayer === currentUserName);
+
+      // Creamos los botones Y los habilitamos solo si realmente es mi turno
       qObj.options.forEach((opt, idx) => {
         const btn = document.createElement("button");
         btn.textContent = opt;
-        btn.disabled = (currentPlayer !== currentUserName);
+        btn.disabled = !soyMiTurno;
         btn.addEventListener("click", () => {
-          btn.disabled = true; // Deshabilitamos inmediatamente tras el clic
+          // Deshabilito todos inmediatamente
+          quizOptionsDiv.querySelectorAll("button").forEach(b => b.disabled = true);
           handleAnswer(idx);
         });
         quizOptionsDiv.appendChild(btn);
@@ -466,6 +472,7 @@
         if (!Array.isArray(userList) || userList.length === 0) return state;
 
         const currentPlayer = userList[turnIndex % userList.length];
+        // Verificación estricta del turno
         if (currentPlayer !== currentUserName) return state;
 
         const questionIdx = order[ptr];
@@ -483,7 +490,7 @@
       }, {
         onComplete: (err, committed) => {
           if (err) console.error("runTransaction error:", err);
-          if (!committed) console.warn("Transaction no fue comprometida");
+          // No re-habilitamos botones aquí; la UI se volverá a renderizar desde el listener
         }
       });
     }
