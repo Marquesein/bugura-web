@@ -161,7 +161,7 @@
 
     // 1) Configuración de Firebase
     const firebaseConfig = {
-      apiKey: "AIzaSyDAYh1x1xwbdNEM4nA33y9sWh2Q3MrLxo",
+      apiKey: "AIzaSyDAYh1x8p1wbdNEM4nA33y9sWh2Q3MrLxo",
       authDomain: "bugura-cf2cd.firebaseapp.com",
       databaseURL: "https://bugura-cf2cd-default-rtdb.firebaseio.com",
       projectId: "bugura-cf2cd",
@@ -408,13 +408,12 @@
       listenToState(currentRoomId);
     }
 
-    // 11) Mostrar pregunta y opciones basadas en indice
+    // 11) Mostrar pregunta y opciones basadas en índice
     function showQuestionUI(questionIndex, currentPlayer) {
       if (questionIndex == null) return;
       const qObj = questions[questionIndex];
       if (!qObj) return;
 
-      // Depuración en consola:
       console.log("Mostrando pregunta:", qObj.text, "correctAnswerIndex=", qObj.correctAnswerIndex);
 
       quizQuestionText.textContent = qObj.text;
@@ -427,6 +426,7 @@
         btn.textContent = opt;
         btn.disabled = !soyMiTurno;
         btn.addEventListener("click", () => {
+          // Deshabilitamos todas las opciones inmediatamente
           quizOptionsDiv.querySelectorAll("button").forEach(b => b.disabled = true);
           handleAnswer(idx);
         });
@@ -485,12 +485,12 @@
 
     // 14) Finalizar quiz en UI
     async function endQuizUI(roomId) {
-      // Limpiar texto y opciones
+      // Limpiar pregunta y opciones
       quizQuestionText.textContent = "";
       turnIndicatorDiv.textContent = "";
       quizOptionsDiv.innerHTML = "";
 
-      // 1) Leer state para ranking y usedQuestions
+      // 1) Obtener state actual
       const stateSnap = await get(ref(db, `salas/${roomId}/state`));
       const state = stateSnap.val();
       const usedOrder = Array.isArray(state?.questionOrder) ? state.questionOrder : [];
@@ -591,10 +591,15 @@
         snapshot.forEach(child => {
           const entry = child.val();
           console.log("Pregunta cargada desde Firebase:", entry);
+
+          // A veces se guarda como "correctIndex" en lugar de "correctAnswerIndex"
+          const rawIndex = entry.correctAnswerIndex ?? entry.correctIndex;
+          const correctIdx = Number.isInteger(rawIndex) ? rawIndex : parseInt(rawIndex, 10);
+
           questions.push({
             text: entry.text,
             options: entry.options,
-            correctAnswerIndex: entry.correctAnswerIndex
+            correctAnswerIndex: correctIdx
           });
         });
         btnCreateRoom.disabled = false;
