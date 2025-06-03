@@ -92,12 +92,6 @@
       height: 20px;
       fill: gold;
     }
-    #winnerMessage {
-      font-size: 48px;
-      font-weight: bold;
-      margin-top: 100px;
-      color: #FFFFFF;
-    }
     @media (max-width: 480px) {
       .container {
         padding: 8px;
@@ -423,6 +417,7 @@
         btn.textContent = opt;
         btn.disabled = !soyMiTurno;
         btn.addEventListener("click", () => {
+          // Deshabilito todas inmediatamente
           quizOptionsDiv.querySelectorAll("button").forEach(b => b.disabled = true);
           handleAnswer(idx);
         });
@@ -461,7 +456,7 @@
         const qObj = questions[questionIdx];
         if (!qObj) return state;
 
-        // CORRECCIÓN: usar campo “correctAnswerIndex”
+        // CORRECCIÓN: usar campo “correctAnswerIndex” (no “correctIndex”)
         if (selectedIndex === qObj.correctAnswerIndex) {
           state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
           state.pointer = ptr + 1;
@@ -477,13 +472,12 @@
 
     // 14) Finalizar quiz en UI
     async function endQuizUI(roomId) {
-      // Ocultar pregunta y opciones
+      // Limpiar área de preguntas/opciones
       quizQuestionText.textContent = "";
       turnIndicatorDiv.textContent = "";
       quizOptionsDiv.innerHTML = "";
-      quizScoresDiv.innerHTML = "";
 
-      // 1) Obtener state actual para saber el orden usado
+      // 1) Obtener state actual para saber las preguntas respondidas
       const stateSnap = await get(ref(db, `salas/${roomId}/state`));
       const state = stateSnap.val();
       const usedOrder = Array.isArray(state?.questionOrder) ? state.questionOrder : [];
@@ -494,14 +488,18 @@
       if (sortedScores.length) {
         const [winnerName] = sortedScores[0];
         winnerDiv.innerHTML = `<h3>🎉 ¡El ganador es ${winnerName}! 🎉</h3>`;
-
-        const rankingRef = ref(db, `ranking/${winnerName}`);
-        runTransaction(rankingRef, current => (current || 0) + 1);
       } else {
         winnerDiv.textContent = "No hay participantes.";
       }
 
-      // 3) Marcar sólo preguntas respondidas (hasta ptr) como usadas
+      // 3) Actualizar ranking general en Firebase
+      if (sortedScores.length) {
+        const [winnerName] = sortedScores[0];
+        const rankingRef = ref(db, `ranking/${winnerName}`);
+        runTransaction(rankingRef, current => (current || 0) + 1);
+      }
+
+      // 4) Marcar solo preguntas RESPONDIDAS como usadas
       const usedUpdates = {};
       for (let i = 0; i < state.pointer; i++) {
         const idx = state.questionOrder[i];
@@ -509,7 +507,7 @@
       }
       await update(ref(db), usedUpdates);
 
-      // 4) Mostrar pantalla de ganador durante 5 s y luego volver a inicio
+      // 5) Después de 5 segundos, volver a pantalla Join
       setTimeout(() => {
         resetToJoin(roomId);
       }, 5000);
@@ -582,7 +580,7 @@
           .map(key => ({
             text: qObj[key].text,
             options: qObj[key].options,
-            correctAnswerIndex: qObj[key].correctAnswerIndex
+            correctAnswerIndex: qObj[key].correctAnswerIndex  // asegurar campo correcto
           }));
         btnCreateRoom.disabled = false;
         btnJoinRoom.disabled   = false;
