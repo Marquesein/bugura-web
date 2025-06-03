@@ -111,7 +111,7 @@
 </head>
 <body>
   <div class="container" id="mainContainer">
-    <!-- Pantalla “Join Room” -->
+    <!-- — Pantalla “Join Room” — -->
     <div id="join-screen">
       <h1 class="title">Bugura Quiz</h1>
       <input type="text" id="input-room-id" placeholder="ID de la sala" />
@@ -130,12 +130,12 @@
 
       <div id="countdown" class="center"></div>
 
-      <!-- Ranking de victorias -->
+      <!-- — Ranking de victorias — -->
       <h3>👑 Ranking de victorias</h3>
       <ul id="ranking-list"></ul>
     </div>
 
-    <!-- Pantalla “Quiz” -->
+    <!-- — Pantalla “Quiz” — -->
     <div id="quiz-screen" class="hidden">
       <h2 class="center">Quiz en Curso</h2>
       <div id="quiz-question" class="question-text"></div>
@@ -200,13 +200,13 @@
     const rankingListUl    = document.getElementById("ranking-list");
     const winnerDiv        = document.getElementById("winner");
 
-    // —— Ranking general de victorias ——
+    // — Ranking general de victorias —
     function listenToGeneralRanking() {
       const rankRef = ref(db, "ranking");
       onValue(rankRef, snapshot => {
         const ranking = snapshot.val() || {};
         const sorted = Object.entries(ranking)
-          .sort((a, b) => b[1] - a[1]);
+          .sort((a,b) => b[1] - a[1]);
 
         rankingListUl.innerHTML = "";
         sorted.forEach(([user, wins], idx) => {
@@ -248,6 +248,7 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
+      // Inicializar “state” y “usedQuestions”
       set(ref(db, `salas/${roomId}`), {
         state: {
           turnIndex: 0,
@@ -277,6 +278,7 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
+      // Añadir usuario a “usuarios” y asegurar puntuación en state
       set(ref(db, `salas/${roomId}/usuarios/${userName}`), true)
       .then(() => set(ref(db, `salas/${roomId}/state/scores/${userName}`), 0))
       .then(() => {
@@ -336,6 +338,7 @@
         const state = snapshot.val();
         if (!state) return;
 
+        // 8.a) Detectar ganador
         if (!gameEnded) {
           const scores = state.scores || {};
           for (const [user, pts] of Object.entries(scores)) {
@@ -347,11 +350,13 @@
           }
         }
 
+        // 8.b) Generar orden si falta
         if (!Array.isArray(state.questionOrder) || state.questionOrder.length === 0) {
           await generateNewQuestionOrder(roomId);
           return;
         }
 
+        // 8.c) Fin del quiz
         if (state.pointer >= state.questionOrder.length) {
           if (!gameEnded) {
             gameEnded = true;
@@ -360,6 +365,7 @@
           return;
         }
 
+        // 8.d) Mostrar pregunta actual
         const turnIndex = state.turnIndex || 0;
         const userList = userListGlobal;
         if (!Array.isArray(userList) || userList.length === 0) return;
@@ -369,6 +375,7 @@
         showQuestionUI(state.questionOrder[state.pointer], currentPlayer);
       });
 
+      // 8.e) Escuchar scores para ranking en UI
       const scoresRef = ref(db, `salas/${roomId}/state/scores`);
       onValue(scoresRef, snapshot => {
         const scores = snapshot.val() || {};
@@ -401,13 +408,13 @@
       listenToState(currentRoomId);
     }
 
-    // 11) Mostrar pregunta y opciones basadas en índice de pregunta (questionIndex)
+    // 11) Mostrar pregunta y opciones basadas en indice
     function showQuestionUI(questionIndex, currentPlayer) {
       if (questionIndex == null) return;
       const qObj = questions[questionIndex];
       if (!qObj) return;
 
-      // Para verificar que la propiedad existe:
+      // Depuración en consola:
       console.log("Mostrando pregunta:", qObj.text, "correctAnswerIndex=", qObj.correctAnswerIndex);
 
       quizQuestionText.textContent = qObj.text;
@@ -439,7 +446,7 @@
       });
     }
 
-    // 13) Manejar respuesta (runTransaction con userListGlobal)
+    // 13) Manejar respuesta (runTransaction)
     function handleAnswer(selectedIndex) {
       const stateRef = ref(db, `salas/${currentRoomId}/state`);
       runTransaction(stateRef, state => {
@@ -460,7 +467,6 @@
 
         console.log("Comparando selectedIndex=", selectedIndex, "contra correctAnswerIndex=", qObj.correctAnswerIndex);
 
-        // COMPARAR CON 'correctAnswerIndex'
         if (selectedIndex === qObj.correctAnswerIndex) {
           console.log("RESPUESTA CORRECTA");
           state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
@@ -479,12 +485,12 @@
 
     // 14) Finalizar quiz en UI
     async function endQuizUI(roomId) {
-      // Limpiar área de preguntas/opciones
+      // Limpiar texto y opciones
       quizQuestionText.textContent = "";
       turnIndicatorDiv.textContent = "";
       quizOptionsDiv.innerHTML = "";
 
-      // 1) Obtener state actual para saber las preguntas respondidas
+      // 1) Leer state para ranking y usedQuestions
       const stateSnap = await get(ref(db, `salas/${roomId}/state`));
       const state = stateSnap.val();
       const usedOrder = Array.isArray(state?.questionOrder) ? state.questionOrder : [];
@@ -499,14 +505,14 @@
         winnerDiv.textContent = "No hay participantes.";
       }
 
-      // 3) Actualizar ranking general en Firebase
+      // 3) Actualizar ranking general
       if (sortedScores.length) {
         const [winnerName] = sortedScores[0];
         const rankingRef = ref(db, `ranking/${winnerName}`);
         runTransaction(rankingRef, current => (current || 0) + 1);
       }
 
-      // 4) Marcar solo preguntas RESPONDIDAS como usadas
+      // 4) Marcar preguntas respondidas como usadas
       const usedUpdates = {};
       for (let i = 0; i < state.pointer; i++) {
         const idx = state.questionOrder[i];
@@ -514,7 +520,7 @@
       }
       await update(ref(db), usedUpdates);
 
-      // 5) Después de 5 segundos, volver a pantalla Join
+      // 5) Tras 5s, volver a pantalla Join
       setTimeout(() => {
         resetToJoin(roomId);
       }, 5000);
@@ -581,19 +587,16 @@
     function loadQuestions() {
       const questionsRef = ref(db, "questions");
       onValue(questionsRef, snapshot => {
-        const qObj = snapshot.val() || {};
-        questions = Object.keys(qObj)
-          .sort((a, b) => Number(a) - Number(b))
-          .map(key => {
-            const entry = qObj[key];
-            // Mostrar en consola para verificar
-            console.log("Pregunta cargada desde Firebase:", entry);
-            return {
-              text: entry.text,
-              options: entry.options,
-              correctAnswerIndex: entry.correctAnswerIndex
-            };
+        questions = [];
+        snapshot.forEach(child => {
+          const entry = child.val();
+          console.log("Pregunta cargada desde Firebase:", entry);
+          questions.push({
+            text: entry.text,
+            options: entry.options,
+            correctAnswerIndex: entry.correctAnswerIndex
           });
+        });
         btnCreateRoom.disabled = false;
         btnJoinRoom.disabled   = false;
       });
@@ -607,7 +610,7 @@
       listenToGeneralRanking();
     });
 
-    // Inicialización
+    // Inicializar
     loadQuestions();
     listenToGeneralRanking();
   </script>
