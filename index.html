@@ -455,8 +455,8 @@
         const qObj = questions[questionIdx];
         if (!qObj) return state;
 
-        // Comparamos con correctAnswerIndex, que coincide con campo en Firebase
-        if (selectedIndex === qObj.correctAnswerIndex) {
+        // COMPARAR CON 'correctIndex'
+        if (selectedIndex === qObj.correctIndex) {
           state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
           state.pointer = ptr + 1;
         }
@@ -504,7 +504,6 @@
         const idx = state.questionOrder[i];
         usedUpdates[`salas/${roomId}/usedQuestions/${idx}`] = true;
       }
-      // Importante: actualizar bajo la raíz
       await update(ref(db), usedUpdates);
 
       // 5) Después de 5 segundos, volver a pantalla Join
@@ -580,7 +579,7 @@
           .map(key => ({
             text: qObj[key].text,
             options: qObj[key].options,
-            correctAnswerIndex: qObj[key].correctAnswerIndex  // coincidencia con campo en JSON
+            correctIndex: qObj[key].correctIndex  // debe coincidir con tu JSON
           }));
         btnCreateRoom.disabled = false;
         btnJoinRoom.disabled   = false;
