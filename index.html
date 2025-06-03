@@ -149,10 +149,8 @@
       <div id="turn-indicator" class="center"></div>
       <div id="quiz-options" class="row"></div>
       <div id="quiz-scores" class="score-list"></div>
+      <div id="winner" class="center"></div>
     </div>
-
-    <!-- Mensaje de ganador -->
-    <div id="winnerMessage" class="hidden center"></div>
   </div>
 
   <script type="module">
@@ -187,7 +185,7 @@
     let countdownTimer      = null;
     let hasCountdownStarted = false;
     let countdownValue      = 15;
-    let userListGlobal      = []; 
+    let userListGlobal      = [];
     let questions           = [];
     let gameEnded           = false;
 
@@ -207,7 +205,7 @@
     const quizOptionsDiv   = document.getElementById("quiz-options");
     const quizScoresDiv    = document.getElementById("quiz-scores");
     const rankingListUl    = document.getElementById("ranking-list");
-    const winnerDiv        = document.getElementById("winnerMessage");
+    const winnerDiv        = document.getElementById("winner");
 
     // —— Ranking general de victorias ——
     function listenToGeneralRanking() {
@@ -354,7 +352,7 @@
           for (const [user, pts] of Object.entries(scores)) {
             if (pts >= 10) {
               gameEnded = true;
-              mostrarGanador(user);
+              endQuizUI(roomId);
               return;
             }
           }
@@ -370,8 +368,7 @@
         if (state.pointer >= state.questionOrder.length) {
           if (!gameEnded) {
             gameEnded = true;
-            mostrarGanador(Object.entries(state.scores)
-              .sort((a, b) => b[1] - a[1])[0][0]);
+            endQuizUI(roomId);
           }
           return;
         }
@@ -425,20 +422,18 @@
       const qObj = questions[questionIndex];
       if (!qObj) return;
 
-      // Escribimos el texto de la pregunta
       quizQuestionText.textContent = qObj.text;
       quizOptionsDiv.innerHTML = "";
 
-      // Decidimos si es mi turno
+      // “¿Es mi turno?”
       const soyMiTurno = (currentPlayer === currentUserName);
 
-      // Creamos los botones Y los habilitamos solo si realmente es mi turno
       qObj.options.forEach((opt, idx) => {
         const btn = document.createElement("button");
         btn.textContent = opt;
         btn.disabled = !soyMiTurno;
         btn.addEventListener("click", () => {
-          // Deshabilito todos inmediatamente
+          // Deshabilito todas inmediatamente
           quizOptionsDiv.querySelectorAll("button").forEach(b => b.disabled = true);
           handleAnswer(idx);
         });
@@ -449,7 +444,6 @@
     // 12) Actualizar ranking de la partida en UI
     function updateRankingUI(scores) {
       quizScoresDiv.innerHTML = "";
-      // Ordenar por puntaje descendente
       const sorted = Object.entries(scores)
         .sort((a, b) => b[1] - a[1]);
       sorted.forEach(([user, score]) => {
@@ -472,35 +466,62 @@
         if (!Array.isArray(userList) || userList.length === 0) return state;
 
         const currentPlayer = userList[turnIndex % userList.length];
-        // Verificación estricta del turno
         if (currentPlayer !== currentUserName) return state;
 
         const questionIdx = order[ptr];
         const qObj = questions[questionIdx];
         if (!qObj) return state;
 
-        if (selectedIndex === qObj.correctIndex) {
-          // Acertó: suma punto y avanza pointer
+        // Usamos correctAnswerIndex (no correctIndex)
+        if (selectedIndex === qObj.correctAnswerIndex) {
           state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
           state.pointer = ptr + 1;
         }
-        // En ambos casos, avanzamos turno
         state.turnIndex = (turnIndex + 1) % userList.length;
         return state;
       }, {
         onComplete: (err, committed) => {
           if (err) console.error("runTransaction error:", err);
-          // No re-habilitamos botones aquí; la UI se volverá a renderizar desde el listener
         }
       });
     }
 
-    // 14) Mostrar ganador: oculta todo y muestra solo el mensaje
-    function mostrarGanador(nombre) {
-      joinScreenDiv.style.display = "none";
-      quizScreenDiv.style.display = "none";
-      winnerDiv.textContent = `¡El ganador es ${nombre}!`;
-      winnerDiv.classList.remove("hidden");
+    // 14) Finalizar quiz en UI
+    async function endQuizUI(roomId) {
+      // Ocultamos ambas pantallas y mostramos solo ganador
+      joinScreenDiv.classList.add("hidden");
+      quizScreenDiv.classList.add("hidden");
+
+      // 1) Obtener state actual para saber el orden usado
+      const stateSnap = await get(ref(db, `salas/${roomId}/state`));
+      const state = stateSnap.val();
+      const usedOrder = Array.isArray(state?.questionOrder) ? state.questionOrder : [];
+
+      // 2) Mostrar ganador
+      const finalScores = state?.scores || {};
+      const sortedScores = Object.entries(finalScores).sort((a, b) => b[1] - a[1]);
+      if (sortedScores.length) {
+        const [winnerName] = sortedScores[0];
+        winnerDiv.innerHTML = `<h3>🎉 ¡El ganador es ${winnerName}! 🎉</h3>`;
+
+        // 3) Actualizar ranking general en Firebase
+        const rankingRef = ref(db, `ranking/${winnerName}`);
+        runTransaction(rankingRef, current => (current || 0) + 1);
+      } else {
+        winnerDiv.textContent = "No hay participantes.";
+      }
+
+      // 4) Marcar en Firebase estas preguntas como “usadas”
+      const updates = {};
+      usedOrder.forEach(idx => {
+        updates[`salas/${roomId}/usedQuestions/${idx}`] = true;
+      });
+      await update(ref(db), updates);
+
+      // 5) Después de 5 segundos, reiniciamos a pantalla de Join y limpiamos UI
+      setTimeout(() => {
+        resetToJoin(roomId);
+      }, 5000);
     }
 
     // 15) Resetear a Join Room
@@ -510,7 +531,6 @@
       quizOptionsDiv.innerHTML = "";
       quizScoresDiv.innerHTML = "";
       winnerDiv.textContent = "";
-      winnerDiv.classList.add("hidden");
 
       joinScreenDiv.classList.remove("hidden");
       quizScreenDiv.classList.add("hidden");
@@ -519,12 +539,13 @@
       countdownDiv.textContent = "";
       hasCountdownStarted = false;
       userListGlobal = [];
-      gameEnded = false; // Reiniciar bandera para la próxima partida
+      gameEnded = false;
       if (countdownTimer) {
         clearInterval(countdownTimer);
         countdownTimer = null;
       }
 
+      // Limpiar estado del juego (sin tocar usedQuestions)
       await set(ref(db, `salas/${roomId}/state`), {
         turnIndex: 0,
         pointer: 0,
@@ -576,9 +597,8 @@
           .map(key => ({
             text: qObj[key].text,
             options: qObj[key].options,
-            correctIndex: qObj[key].correctAnswerIndex
+            correctAnswerIndex: qObj[key].correctAnswerIndex
           }));
-        // Ahora que cargaron preguntas, habilitamos botones
         btnCreateRoom.disabled = false;
         btnJoinRoom.disabled   = false;
       });
@@ -592,7 +612,7 @@
       listenToGeneralRanking();
     });
 
-    // Al cargar la página, primero cargamos las preguntas y luego arrancamos el listener del ranking general
+    // Inicialización
     loadQuestions();
     listenToGeneralRanking();
   </script>
