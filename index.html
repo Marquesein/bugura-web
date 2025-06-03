@@ -148,7 +148,7 @@
       <div id="turn-indicator" class="center"></div>
       <div id="quiz-options" class="row"></div>
       <div id="quiz-scores" class="score-list"></div>
-      <div id="winner" class="center"></div>
+      <div id="winner" class="center" style="font-size: 32px; margin-top: 24px;"></div>
     </div>
   </div>
 
@@ -423,7 +423,6 @@
         btn.textContent = opt;
         btn.disabled = !soyMiTurno;
         btn.addEventListener("click", () => {
-          // Deshabilito todas inmediatamente
           quizOptionsDiv.querySelectorAll("button").forEach(b => b.disabled = true);
           handleAnswer(idx);
         });
@@ -462,7 +461,7 @@
         const qObj = questions[questionIdx];
         if (!qObj) return state;
 
-        // Comparar con correctAnswerIndex
+        // CORRECCIÓN: usar campo “correctAnswerIndex”
         if (selectedIndex === qObj.correctAnswerIndex) {
           state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
           state.pointer = ptr + 1;
@@ -478,13 +477,18 @@
 
     // 14) Finalizar quiz en UI
     async function endQuizUI(roomId) {
-      joinScreenDiv.classList.add("hidden");
-      quizScreenDiv.classList.add("hidden");
+      // Ocultar pregunta y opciones
+      quizQuestionText.textContent = "";
+      turnIndicatorDiv.textContent = "";
+      quizOptionsDiv.innerHTML = "";
+      quizScoresDiv.innerHTML = "";
 
+      // 1) Obtener state actual para saber el orden usado
       const stateSnap = await get(ref(db, `salas/${roomId}/state`));
       const state = stateSnap.val();
       const usedOrder = Array.isArray(state?.questionOrder) ? state.questionOrder : [];
 
+      // 2) Mostrar ganador
       const finalScores = state?.scores || {};
       const sortedScores = Object.entries(finalScores).sort((a, b) => b[1] - a[1]);
       if (sortedScores.length) {
@@ -497,7 +501,7 @@
         winnerDiv.textContent = "No hay participantes.";
       }
 
-      // Marcar sólo las preguntas realmente respondidas (hasta ptr) como usadas:
+      // 3) Marcar sólo preguntas respondidas (hasta ptr) como usadas
       const usedUpdates = {};
       for (let i = 0; i < state.pointer; i++) {
         const idx = state.questionOrder[i];
@@ -505,7 +509,7 @@
       }
       await update(ref(db), usedUpdates);
 
-      // 5s antes de volver a Join
+      // 4) Mostrar pantalla de ganador durante 5 s y luego volver a inicio
       setTimeout(() => {
         resetToJoin(roomId);
       }, 5000);
@@ -513,12 +517,7 @@
 
     // 15) Resetear a Join Room
     async function resetToJoin(roomId) {
-      quizQuestionText.textContent = "";
-      turnIndicatorDiv.textContent = "";
-      quizOptionsDiv.innerHTML = "";
-      quizScoresDiv.innerHTML = "";
       winnerDiv.textContent = "";
-
       joinScreenDiv.classList.remove("hidden");
       quizScreenDiv.classList.add("hidden");
       clearUsersList();
