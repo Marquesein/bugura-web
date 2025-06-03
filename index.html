@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Bugura Quiz (Web – Turnos con preguntas no repetidas)</title>
   <style>
-    /* ————————————————————————————————————————————————————
-       Estilos para modo oscuro y responsive
-       ———————————————————————————————————————————————————— */
     body {
       margin: 0;
       padding: 0;
@@ -124,8 +121,8 @@
       <input type="text" id="input-username" placeholder="Nombre de usuario" />
 
       <div class="row">
-        <button id="btn-create-room">Crear Sala</button>
-        <button id="btn-join-room">Unirse a Sala</button>
+        <button id="btn-create-room" disabled>Crear Sala</button>
+        <button id="btn-join-room" disabled>Unirse a Sala</button>
         <button id="btn-reset-all">Reiniciar Salas</button>
       </div>
 
@@ -152,7 +149,6 @@
     </div>
   </div>
 
-  <!-- Firebase SDK v9 + lógica JS -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
     import {
@@ -185,7 +181,8 @@
     let countdownTimer      = null;
     let hasCountdownStarted = false;
     let countdownValue      = 15;
-    let userListGlobal      = []; // Lista ordenada de usuarios
+    let userListGlobal      = [];
+    let questions          = [];
 
     // Referencias DOM
     const joinScreenDiv    = document.getElementById("join-screen");
@@ -205,116 +202,11 @@
     const winnerDiv        = document.getElementById("winner");
     const rankingListUl    = document.getElementById("ranking-list");
 
-    // Banco de preguntas (100 preguntas de videojuegos)
-    const questions = [
-      { text: "¿Quién es el jefe final de Elden Ring?", options: ["Radagon", "Godfrey, el Primer Elden Lord", "Malenia, la Espada de Miquella", "Queen Marika"], correctIndex: 1 },
-      { text: "¿En qué año se lanzó Call of Duty: Modern Warfare (2019)?", options: ["2018", "2019", "2020", "2021"], correctIndex: 1 },
-      { text: "¿Cuál es el nombre de la IA principal en Call of Duty: Zombies (Black Ops)?", options: ["Samantha", "Edward Richtofen", "Luna", "Nikolai"], correctIndex: 0 },
-      { text: "¿Cómo se llama el modo principal de Rocket League?", options: ["Rocket Domination", "Soccar", "Starball", "Rocket Cup"], correctIndex: 1 },
-      { text: "¿Cuál es el nombre de la isla inicial en Fortnite Chapter 2?", options: ["Isla Sosiego", "Isla Neo Tilted", "Isla Pangolina", "Isla Coral"], correctIndex: 0 },
-      { text: "¿En GTA V, cómo se llama el protagonista que sufre de narcolepsia?", options: ["Michael De Santa", "Franklin Clinton", "Trevor Philips", "Niko Bellic"], correctIndex: 2 },
-      { text: "¿Cuál es el agente con habilidades de invisibilidad en Valorant?", options: ["Omen", "Cypher", "Sage", "Jett"], correctIndex: 0 },
-      { text: "¿En Raft, cuál es el material principal para expandir tu balsa?", options: ["Madera", "Metal", "Plástico", "Algas"], correctIndex: 0 },
-      { text: "¿Cuál es el dios principal de Smite que se añadió en la Temporada 5?", options: ["Ah Puch", "Baba Yaga", "Ravana", "Serqet"], correctIndex: 1 },
-      { text: "¿Qué evento lanzó Overwatch 2 en su modo PvP principal?", options: ["Push", "Escort", "Control", "Hybrid"], correctIndex: 0 },
-      { text: "¿Cómo se llama la expansión de FIFA 21 que introdujo Ultimate Team Seasons?", options: ["FUT Seasons", "FUT Rivals", "FUT Champions", "FUT Draft"], correctIndex: 0 },
-      { text: "¿Cuál es el impostor más rápido en Among Us?", options: ["Infectar", "Ventear", "Sabotear", "Visión reducida"], correctIndex: 1 },
-      { text: "¿Qué arma icónica usa Doomguy en Doom Eternal?", options: ["BFG 9000", "Escopeta de combate", "Misil HE", "Cañón de plasma"], correctIndex: 0 },
-      { text: "¿En qué año se lanzó League of Legends?", options: ["2008", "2009", "2010", "2011"], correctIndex: 1 },
-      { text: "¿Cuál fue el primer héroe añadido a Apex Legends después del lanzamiento?", options: ["Octane", "Wraith", "Bangalore", "Bloodhound"], correctIndex: 0 },
-      { text: "¿Cómo se llama el mapa clásico de PUBG Mobile que lleva un nombre ruso?", options: ["Miramar", "Erangel", "Sanhok", "Vikendi"], correctIndex: 3 },
-      { text: "¿Qué ciudad inspiró la ciudad de Ciudad de Piedra en Minecraft?", options: ["Berlín", "París", "Rennes-le-Château", "Barcelona"], correctIndex: 2 },
-      { text: "¿Cuál es la habilidad definitiva de Ashe en Overwatch?", options: ["Coach Gun", "Dinamita", "B.O.B.", "Ballistic Vest"], correctIndex: 2 },
-      { text: "¿Qué equipo ganó el primer Campeonato Mundial de League of Legends (2011)?", options: ["Fnatic", "Team SoloMid", "Invictus Gaming", "G2 Esports"], correctIndex: 0 },
-      { text: "¿Cómo se llama el protagonista de Cyberpunk 2077? (Nombre predeterminado)", options: ["V", "Adam", "Johnny", "Jackie"], correctIndex: 0 },
-      { text: "¿Cuál es el modo de juego que introdujo Warzone en Call of Duty?", options: ["Battle Royale", "Multijugador Clásico", "Zombies", "Gunfight"], correctIndex: 0 },
-      { text: "¿En Rocket League, cuál es el nombre de la arena inspirada en el baloncesto?", options: ["Hoops", "Dunk House", "B-Ball Stadium", "Netty Heights"], correctIndex: 0 },
-      { text: "¿Qué personaje de Fortnite tiene alas de ángel como accesorio?", options: ["Raptor", "Raven", "Wingman", "Reaper"], correctIndex: 2 },
-      { text: "¿Cuál es la razón por la que Trevor abandona Los Santos en GTA V?", options: ["Huida de la ley", "Muerte de su hermano", "Robo fallido", "Problemas con el cartel"], correctIndex: 0 },
-      { text: "¿Cuál es la habilidad pasiva de Phoenix en Valorant?", options: ["Renacimiento", "Curación al disparar", "Humo curativo", "Flash aumentado"], correctIndex: 3 },
-      { text: "¿Qué criatura marina es el principal enemigo en Raft?", options: ["Tiburón martillo", "Tiburón blanco", "Megalodón", "Orca"], correctIndex: 1 },
-      { text: "¿Quién es el dios gemelo de Freya en Smite 2?", options: ["Frey", "Odin", "Thor", "Loki"], correctIndex: 0 },
-      { text: "¿Cómo se llama el mapa de captura de carga en Overwatch 2?", options: ["Stormkeep", "New Junk City", "Circuit Royal", "Yoshida Harbor"], correctIndex: 1 },
-      { text: "¿En FIFA 22, qué jugador aparece en la portada de la edición estándar?", options: ["Lionel Messi", "Cristiano Ronaldo", "Kylian Mbappé", "Neymar Jr."], correctIndex: 2 },
-      { text: "¿Cuál es la ubicación por defecto en Among Us cuando empieza una partida?", options: ["The Skeld", "Mira HQ", "Polus", "Airship"], correctIndex: 0 },
-      { text: "¿Cuál es la clase de arma principal de Travis Touchdown en No More Heroes 3?", options: ["Beam Katana", "Pistol", "Shotgun", "Sniper Rifle"], correctIndex: 0 },
-      { text: "¿Qué raza jugable introdujo Shadowlands en World of Warcraft?", options: ["Kyrian", "Venthyr", "Necrolord", "Nightborne"], correctIndex: 0 },
-      { text: "¿Cuál es la isla inicial en Animal Crossing: New Horizons?", options: ["Isla Nook", "Isla Tortuga", "Isla Palmera", "Isla Doce"], correctIndex: 0 },
-      { text: "¿Cómo se llama la expansión de The Witcher 3 lanzada en 2015?", options: ["Blood and Wine", "Hearts of Stone", "Wild Hunt", "Gwent"], correctIndex: 1 },
-      { text: "¿Quién es el artista que canta la canción principal de Cyberpunk 2077, 'Chippin’ In'?", options: ["Snoh Aalegra", "Run the Jewels", "Grimes", "Keanu Reeves"], correctIndex: 1 },
-      { text: "¿Cuál es la velocidad base de movimiento de Ashe en Overwatch 1?", options: ["5.5 m/s", "5.0 m/s", "5.5 yarde/s", "6.0 m/s"], correctIndex: 0 },
-      { text: "¿Qué personaje de Fortnite tiene un pico llamado 'Renegade Roller'?", options: ["Renegade Raider", "Peely", "Drift", "Fable"], correctIndex: 0 },
-      { text: "¿Cuál es el principal villano en Red Dead Redemption 2?", options: ["Dutch van der Linde", "Micah Bell", "Arthur Morgan", "Hosea Matthews"], correctIndex: 1 },
-      { text: "¿Cuál es el valor máximo de habilidad en Valorant?", options: ["6", "7", "8", "9"], correctIndex: 1 },
-      { text: "¿Cuál es el material para construir velas en Raft?", options: ["Soga", "Tela", "Maderas finas", "Aluminio"], correctIndex: 1 },
-      { text: "¿Qué tipo de dios es Zeus en Smite 1?", options: ["Mago", "Asesino", "Guerrero", "Luchador"], correctIndex: 0 },
-      { text: "¿Cuál es la habilidad final de Genji en Overwatch?", options: ["Dragonblade", "Swift Strike", "Deflect", "Shuriken"], correctIndex: 0 },
-      { text: "¿Qué equipo ganó la Worlds 2018 en League of Legends?", options: ["Invictus Gaming", "Fnatic", "SK Telecom T1", "G2 Esports"], correctIndex: 0 },
-      { text: "¿Cómo se llama el protagonista de Assassin’s Creed Valhalla?", options: ["Eivor", "Ezio Auditore", "Kassandra", "Bayek"], correctIndex: 0 },
-      { text: "¿Qué popular juego de cartas se lanzó junto con Hearthstone en 2014?", options: ["Legends of Runeterra", "Gwent", "Artifact", "Shadowverse"], correctIndex: 1 },
-      { text: "¿En Apex Legends, qué arma dispara proyectiles de aire?", options: ["Wingman", "Kraber", "Havoc", "L-STAR"], correctIndex: 3 },
-      { text: "¿Cuál es la función del botón 'Ping' en Apex Legends?", options: ["Marcar enemigos", "Rendir homenaje", "Enviar mensaje de voz", "Cambiar arma"], correctIndex: 0 },
-      { text: "¿Cuál es la velocidad de vehículo base en GTA Online para el Deluxo volador?", options: ["190 mph", "120 mph", "130 mph", "150 mph"], correctIndex: 0 },
-      { text: "¿Cómo se llama el mapa nocturno exclusivo en Call of Duty: Modern Warfare 2 Remastered?", options: ["Rust", "Terminal", "Favela", "Highrise"], correctIndex: 1 },
-      { text: "¿Qué evento crossover lanzó Fortnite con Marvel en 2020?", options: ["Nexus War", "Infinity Saga", "Galactus Hunt", "Avengers Assemble"], correctIndex: 0 },
-      { text: "¿En Valorant, cuál agente puede colocar trampas que revelan enemigos?", options: ["Sova", "Cypher", "Brimstone", "Killjoy"], correctIndex: 1 },
-      { text: "¿Cuál es la mascota de Raft que trae regalos cuando la alimentas?", options: ["Gaviota", "Foca", "Delfín", "Tortuga marina"], correctIndex: 0 },
-      { text: "¿Cómo se llama la versión mobile de Smite?", options: ["Smite Arena", "Smite Blitz", "Smite Strike", "Smite Heroes"], correctIndex: 1 },
-      { text: "¿Cuál es la principal función del 'Builder' en Fortnite Creative?", options: ["Construir mapas personalizados", "Comprar objetos", "Luchar contra zombis", "Personalizar armas"], correctIndex: 0 },
-      { text: "¿Qué país ficticio aparece en Overwatch 2 como nuevo mapa?", options: ["Dorado", "Rio de Janeiro", "Toronto", "Busan"], correctIndex: 2 },
-      { text: "¿Quién interpretó la voz de Kratos en God of War (2018)?", options: ["Troy Baker", "Christopher Judge", "David Hayter", "Nolan North"], correctIndex: 1 },
-      { text: "¿Cuál es el principal enemigo final en Horizon Zero Dawn?", options: ["Hades", "Aloy", "Hephaestus", "Hela"], correctIndex: 0 },
-      { text: "¿En Among Us, cuántos jugadores es el máximo oficial?", options: ["8", "10", "12", "14"], correctIndex: 2 },
-      { text: "¿Qué héroe de Overwatch tiene dos espadas de energía?", options: ["Reaper", "Genji", "Tracer", "Soldier: 76"], correctIndex: 1 },
-      { text: "¿Cómo se llama la expansión de Minecraft que introdujo aldeanos y bibliotecas?", options: ["Village & Pillage", "Nether Update", "Aquatic Update", "Bountiful Update"], correctIndex: 0 },
-      { text: "¿Cuál es el nombre del evento de fútbol de FIFA 20 donde se añadieron equipos legendarios?", options: ["FUT Icons", "FUT Heroes", "Team of the Year", "Team of the Week"], correctIndex: 0 },
-      { text: "¿En Valorant, cómo se llama la habilidad de Sage que resucita a un compañero?", options: ["Healing Orb", "Slow Orb", "Barrier Orb", "Resurrection"], correctIndex: 3 },
-      { text: "¿Cuál es la meta de Raft cuando encuentras una parte del barco gigante?", options: ["Construir un hotel flotante", "Armar un barco más grande", "Derrotar al tiburón", "Encontrar un portal"], correctIndex: 1 },
-      { text: "¿Qué dios de Smite es conocido como 'El Cazador de Dragones'?", options: ["Apollo", "Cupid", "Artemis", "Hun Batz"], correctIndex: 2 },
-      { text: "¿Cuál es el principal baile (emote) de Fortnite con tema zombie?", options: ["Zombie Boogie", "Thriller", "Pump It Up", "Moonwalk"], correctIndex: 1 },
-      { text: "¿Qué personaje de GTA Online vende autos de lujo modificados?", options: ["Lamar", "Tony Prince", "Lester Crest", "Cayde-6"], correctIndex: 1 },
-      { text: "¿Cuál es el movimiento final de Genji en Overwatch 2?", options: ["Swift Dragon", "Dragonblade Extremo", "Shuriken Ultimate", "Dragonstrike"], correctIndex: 1 },
-      { text: "¿Cuál es el nombre del modo de juego competitivo en Rocket League?", options: ["Ranked", "Pro League", "Championship", "Elite Cup"], correctIndex: 0 },
-      { text: "¿Qué arma exclusividad COD Zombies dispara rayos de energía?", options: ["Ray Gun", "Monkey Bomb", "Thundergun", "Wunderwaffe DG-2"], correctIndex: 2 },
-      { text: "¿En Among Us, cuántas tareas (tasks) mínimas puede haber en Skeld?", options: ["1", "2", "3", "4"], correctIndex: 0 },
-      { text: "¿Cuál es la velocidad máxima de la bicicleta SpidaBike en GTA Online?", options: ["120 mph", "130 mph", "140 mph", "150 mph"], correctIndex: 2 },
-      { text: "¿Qué modificación añadió el modo GTA V RP (Roleplay)?", options: ["Nuevo mapa", "Interacción social avanzada", "Modo construcción", "Carreras de drones"], correctIndex: 1 },
-      { text: "¿Cuál es el nombre del jefe final de Elden Ring que causó polémica por su dificultad?", options: ["Malenia", "Radahn", "Godrick", "Grafted Scion"], correctIndex: 0 },
-      { text: "¿En Rocket League, qué coche es considerado uno de los más populares en competitivo?", options: ["Octane", "Fennec", "Dominus", "Breakout"], correctIndex: 0 },
-      { text: "¿Qué modo de juego introdujo Call of Duty: Warzone para 200 jugadores?", options: ["Battle Royale", "Plunder", "Resurgence", "Armored Royale"], correctIndex: 0 },
-      { text: "¿Cuál es el arma más cara en el Pase de Batalla de Fortnite temporada 5?", options: ["Scar Legendary", "Golden Scar", "Mythic Scar", "Scar Enchanted"], correctIndex: 2 },
-      { text: "¿Qué dios gemelo debutó en Smite 2 como personaje jugable?", options: ["Anhur y Anubis", "Fenrir y Freki", "Thor y Tyr", "Zhong Kui y Zhong Kui (Retribución)"], correctIndex: 0 },
-      { text: "¿Qué habilidad de Jett en Valorant le permite deslizarse por el suelo?", options: ["Cloudburst", "Tailwind", "Updraft", "Blade Storm"], correctIndex: 1 },
-      { text: "¿Cuál es el nombre de la expansión de FIFA 22 dedicada a Normas Pro?", options: ["Volta Football", "Pro Clubs", "Ultimate Team", "Career Mode"], correctIndex: 1 },
-      { text: "¿En Among Us, qué tarea se realiza en la parte inferior del mapa (The Skeld)?", options: ["Fuel Engines", "Download/Upload Data", "Fix Wiring", "Prime Shields"], correctIndex: 1 },
-      { text: "¿Qué héroe de Overwatch tiene una granada de pulso electromagnético como habilidad?", options: ["Moira", "Ana", "Ashe", "Torbjörn"], correctIndex: 3 },
-      { text: "¿Cuál es la velocidad de caída estándar en Rocket League tras saltar?", options: ["7 m/s", "8 m/s", "8.5 m/s", "9 m/s"], correctIndex: 2 },
-      { text: "¿Qué mapa de Modern Warfare (2019) se inspira en una estación de tren europea?", options: ["Train Station", "Piccadilly", "Piccadilly Metro", "Railway Yard"], correctIndex: 1 },
-      { text: "¿Cuál es el nombre del modo de supervivencia en DayZ que comparte similitudes con Raft?", options: ["Hardcore Mode", "Pilgrim Mode", "Survivor Mode", "Wasteland Mode"], correctIndex: 1 },
-      { text: "¿Qué tipo de habilidad tiene Mercy en Overwatch 2?", options: ["Sobrecarga de salud", "Resurrect", "Guardian Angel", "Angel Guardian"], correctIndex: 1 },
-      { text: "¿Cuál es la consola exclusiva de lanzamiento de Fortnite en 2017?", options: ["PlayStation 4", "Xbox One", "Nintendo Switch", "PC"], correctIndex: 2 },
-      { text: "¿Qué escenario icónico reapareció en CoD Zombies Black Ops Cold War?", options: ["Shi No Numa", "Kino Der Toten", "Ascension", "Die Maschine"], correctIndex: 3 },
-      { text: "¿Cuál es la habilidad final de Zenyatta en Overwatch?", options: ["Orb of Discord", "Transcendence", "Orb of Harmony", "Rising Lotus"], correctIndex: 1 },
-      { text: "¿Qué modo de juego agregó Rocket League en la temporada 9?", options: ["Hoops", "Rumble", "Dropshot", "Snow Day"], correctIndex: 2 },
-      { text: "¿En FIFA 21, qué elemento del modo Carrera se mejoró considerablemente?", options: ["Simulación de partidos", "Mejoras de portero", "Pantalla de jugadas", "Modo Volta"], correctIndex: 0 },
-      { text: "¿Cuál es la ubicación principal en Among Us Airship?", options: ["Flyar", "Skeld", "Polus", "Mira HQ"], correctIndex: 0 },
-      { text: "¿Qué juego de la década introdujo el modo multijugador cooperativo L4D2?", options: ["Left 4 Dead 2", "Dead Rising 3", "Dying Light", "Resident Evil 6"], correctIndex: 0 },
-      { text: "¿Cuál es la habilidad definitiva de Tracer en Overwatch 2?", options: ["Pulse Bomb", "Blink", "Recall", "Time Warp"], correctIndex: 0 },
-      { text: "¿Qué famoso streamer colaboró con Rocket League para una serie de eventos caritativas en 2020?", options: ["Ninja", "Shroud", "Tfue", "Dr Disrespect"], correctIndex: 2 },
-      { text: "¿En GTA V Online, cuál es la velocidad máxima del Deluxo en modo vuelo?", options: ["190 mph", "180 mph", "200 mph", "195 mph"], correctIndex: 0 },
-      { text: "¿Cuál es el nombre de la actualización grande que trajo la isla de Cornwall en Fortnite?", options: ["Capítulo 2", "Capítulo 3", "Capítulo 4", "Capítulo 5"], correctIndex: 1 },
-      { text: "¿Qué arma de COD Zombies en Black Ops 4 dispara una barra eléctrica?", options: ["Death Machine", "Tesla Gun", "Staff of Lightning", "Ray Gun Mk II"], correctIndex: 1 },
-      { text: "¿Cuál es el nombre del evento continuo de Overwatch 2 que introduce mapas PvE?", options: ["Season Zero", "Rift Watch", "Hero Stories", "Archives"], correctIndex: 2 },
-      { text: "¿Qué equipo ganó la Copa Mundial de Rocket League 2021?", options: ["Team Vitality", "NRG Esports", "Cloud9", "Dignitas"], correctIndex: 1 },
-      { text: "¿Cuál es la habilidad definitiva de Genji en Overwatch 1 (reaparece en Overwatch 2)?", options: ["Dragonblade", "Swift Strike", "Deflect", "Shuriken Storm"], correctIndex: 0 }
-    ];
-
-    // —— Ranking general de victorias (escucha /ranking) ——
+    // —— Ranking general de victorias ——
     function listenToGeneralRanking() {
       const rankRef = ref(db, "ranking");
       onValue(rankRef, snapshot => {
         const ranking = snapshot.val() || {};
-        // Ordenar por número de victorias descendente
         const sorted = Object.entries(ranking)
           .sort((a,b) => b[1] - a[1]);
 
@@ -358,7 +250,6 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
-      // Inicializar “state” y “usedQuestions”
       set(ref(db, `salas/${roomId}`), {
         state: {
           turnIndex: 0,
@@ -368,18 +259,13 @@
         },
         usedQuestions: {}
       })
-      .then(() => {
-        // Añadir usuario a “usuarios” en esa sala
-        return set(ref(db, `salas/${roomId}/usuarios/${userName}`), true);
-      })
+      .then(() => set(ref(db, `salas/${roomId}/usuarios/${userName}`), true))
       .then(() => {
         listenToGeneralRanking();
         listenToUsers(roomId);
         showMessage(`Sala creada: ${roomId}`);
       })
-      .catch(err => {
-        showMessage("Error al crear sala: " + err.message);
-      });
+      .catch(err => showMessage("Error al crear sala: " + err.message));
     }
 
     // 5) JOIN ROOM
@@ -393,20 +279,14 @@
       currentRoomId   = roomId;
       currentUserName = userName;
 
-      // Añadir usuario a “usuarios” en esa sala
       set(ref(db, `salas/${roomId}/usuarios/${userName}`), true)
-      .then(() => {
-        // Asegurar que en state/scores existe la clave con valor 0
-        return set(ref(db, `salas/${roomId}/state/scores/${userName}`), 0);
-      })
+      .then(() => set(ref(db, `salas/${roomId}/state/scores/${userName}`), 0))
       .then(() => {
         listenToGeneralRanking();
         listenToUsers(roomId);
         showMessage(`Unido a la sala: ${roomId}`);
       })
-      .catch(err => {
-        showMessage("Error al unirse: " + err.message);
-      });
+      .catch(err => showMessage("Error al unirse: " + err.message));
     }
 
     // 6) RESET ALL
@@ -423,9 +303,7 @@
           countdownTimer = null;
         }
       })
-      .catch(err => {
-        showMessage("Error al reiniciar: " + err.message);
-      });
+      .catch(err => showMessage("Error al reiniciar: " + err.message));
     }
 
     // 7) LISTENER a “salas/{roomId}/usuarios”
@@ -447,44 +325,36 @@
           usersListUl.appendChild(li);
         });
 
-        // Si hay al menos 3 jugadores, arranca cuenta atrás (una sola vez)
         if (userList.length >= 3 && !hasCountdownStarted) {
           startCountdown();
         }
       });
     }
 
-    // 8) LISTENERS a “state” de la sala: turnIndex, pointer, questionOrder y scores
+    // 8) LISTENERS a “state” de la sala
     function listenToState(roomId) {
-      // A) Listener para cambios en state (se obtiene todo el objeto state)
       const stateRef = ref(db, `salas/${roomId}/state`);
       onValue(stateRef, async snapshot => {
         const state = snapshot.val();
         if (!state) return;
 
-        // Si questionOrder está vacío, generamos uno nuevo
         if (!Array.isArray(state.questionOrder) || state.questionOrder.length === 0) {
           await generateNewQuestionOrder(roomId);
           return;
         }
-
-        // Si pointer >= questionOrder.length => fin de quiz
         if (state.pointer >= state.questionOrder.length) {
           endQuizUI(roomId);
           return;
         }
 
-        // Mostrar turno y pregunta actual
         const turnIndex = state.turnIndex || 0;
         const userList = userListGlobal;
         if (!Array.isArray(userList) || userList.length === 0) return;
         const currentPlayer = userList[turnIndex % userList.length];
         turnIndicatorDiv.textContent = `Turno de: ${currentPlayer}`;
-
         showQuestionUI(state.questionOrder[state.pointer], currentPlayer);
       });
 
-      // B) Listener para scores: actualiza ranking de la partida en UI
       const scoresRef = ref(db, `salas/${roomId}/state/scores`);
       onValue(scoresRef, snapshot => {
         const scores = snapshot.val() || {};
@@ -492,7 +362,7 @@
       });
     }
 
-    // 9) CUENTA ATRÁS (15 s) y luego transición a Quiz
+    // 9) CUENTA ATRÁS (15 s)
     function startCountdown() {
       hasCountdownStarted = true;
       countdownDiv.textContent = `Comienza en ${countdownValue} s`;
@@ -517,9 +387,9 @@
       listenToState(currentRoomId);
     }
 
-    // 11) Mostrar pregunta y opciones basadas en índice de pregunta (questionIndex)
+    // 11) Mostrar pregunta y opciones
     function showQuestionUI(questionIndex, currentPlayer) {
-      if (questionIndex == null) return;
+      if (questionIndex == null || !Array.isArray(questions)) return;
       const qObj = questions[questionIndex];
       if (!qObj) return;
 
@@ -535,21 +405,19 @@
       });
     }
 
-    // 12) Actualizar ranking de la partida en UI
+    // 12) Actualizar ranking de la partida
     function updateRankingUI(scores) {
       quizScoresDiv.innerHTML = "";
-      // Ordenar por puntaje descendente
       const sorted = Object.entries(scores)
         .sort((a,b) => b[1] - a[1]);
-      sorted.forEach(([user, score], idx) => {
+      sorted.forEach(([user, score]) => {
         const div = document.createElement("div");
         div.textContent = `${user}: ${score} pts`;
         quizScoresDiv.appendChild(div);
       });
     }
 
-    // 13) Manejar respuesta (runTransaction con userListGlobal)
-    //     Si es correcta, avanza pointer; si es incorrecta, pointer se mantiene y sólo cambia turno.
+    // 13) Manejar respuesta
     function handleAnswer(selectedIndex) {
       const stateRef = ref(db, `salas/${currentRoomId}/state`);
       runTransaction(stateRef, state => {
@@ -569,54 +437,43 @@
         if (!qObj) return state;
 
         if (selectedIndex === qObj.correctIndex) {
-          // Acertó: suma punto y avanza pointer
           state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
           state.pointer = ptr + 1;
         }
-        // Si falla, pointer no cambia (misma pregunta para siguiente jugador)
-        // En ambos casos, avanzamos turno
         state.turnIndex = (turnIndex + 1) % userList.length;
         return state;
       }, {
-        onComplete: (err, committed, snapshot) => {
+        onComplete: (err, committed) => {
           if (err) console.error("runTransaction error:", err);
           if (!committed) console.warn("Transaction no fue comprometida");
         }
       });
     }
 
-    // 14) Finalizar quiz en UI
+    // 14) Finalizar quiz y mostrar ganador
     async function endQuizUI(roomId) {
-      // Obtener state actual para saber el orden usado
       const stateSnap = await get(ref(db, `salas/${roomId}/state`));
       const state = stateSnap.val();
       const usedOrder = Array.isArray(state?.questionOrder) ? state.questionOrder : [];
 
-      // 1) Mostrar ganador
       const finalScores = state?.scores || {};
       const sortedScores = Object.entries(finalScores).sort((a,b) => b[1] - a[1]);
       if (sortedScores.length) {
         const [winnerName] = sortedScores[0];
         winnerDiv.innerHTML = `<h3>🎉 ¡El ganador es ${winnerName}! 🎉</h3>`;
-
-        // 2) Actualizar ranking general en Firebase
         const rankingRef = ref(db, `ranking/${winnerName}`);
         runTransaction(rankingRef, current => (current || 0) + 1);
       } else {
         winnerDiv.textContent = "No hay participantes.";
       }
 
-      // 3) Marcar en Firebase estas preguntas como “usadas”
       const updates = {};
       usedOrder.forEach(idx => {
         updates[`salas/${roomId}/usedQuestions/${idx}`] = true;
       });
       await update(ref(db), updates);
 
-      // 4) Después de 5 segundos, reiniciamos a pantalla de Join y limpiamos UI
-      setTimeout(() => {
-        resetToJoin(roomId);
-      }, 5000);
+      setTimeout(() => resetToJoin(roomId), 5000);
     }
 
     // 15) Resetear a Join Room
@@ -639,7 +496,6 @@
         countdownTimer = null;
       }
 
-      // Limpiar estado del juego, sin tocar usedQuestions
       await set(ref(db, `salas/${roomId}/state`), {
         turnIndex: 0,
         pointer: 0,
@@ -648,37 +504,31 @@
       });
     }
 
-    // 16) Generar nuevo orden aleatorio de preguntas para la sala
+    // 16) Generar nuevo orden aleatorio de preguntas
     async function generateNewQuestionOrder(roomId) {
-      // Obtener usedQuestions de DB
       const usedSnap = await get(ref(db, `salas/${roomId}/usedQuestions`));
       const usedObj = usedSnap.val() || {};
       const usedIndices = new Set(Object.keys(usedObj).map(k => parseInt(k)));
 
-      // Construir array de índices disponibles
       const allIndices = questions.map((_, i) => i);
       const remaining = allIndices.filter(i => !usedIndices.has(i));
 
-      // Si se agotaron, reiniciar usedQuestions
       if (remaining.length === 0) {
         await set(ref(db, `salas/${roomId}/usedQuestions`), {});
         remaining.push(...allIndices);
       }
 
-      // Mezclar “remaining” (Fisher–Yates)
       for (let i = remaining.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
       }
 
-      // Obtener lista de usuarios actuales para inicializar scores
       const usersSnap = await get(ref(db, `salas/${roomId}/usuarios`));
       const usersObj = usersSnap.val() || {};
       const users = Object.keys(usersObj);
       const initialScores = {};
       users.forEach(u => { initialScores[u] = 0; });
 
-      // Escribir en state.questionOrder el array “remaining” y reiniciar pointer, turnIndex, scores
       await update(ref(db, `salas/${roomId}/state`), {
         questionOrder: remaining,
         pointer: 0,
@@ -687,7 +537,20 @@
       });
     }
 
-    // 17) Eventos de botón
+    // 17) Cargar preguntas desde Firebase al iniciar
+    function loadQuestions() {
+      const questionsRef = ref(db, "questions");
+      onValue(questionsRef, snapshot => {
+        const qObj = snapshot.val() || {};
+        questions = Object.keys(qObj)
+          .sort((a,b) => Number(a) - Number(b))
+          .map(key => qObj[key]);
+        btnCreateRoom.disabled = false;
+        btnJoinRoom.disabled   = false;
+      });
+    }
+
+    // 18) Eventos de botón
     btnCreateRoom.addEventListener("click", createRoom);
     btnJoinRoom.addEventListener("click", joinRoom);
     btnResetAll.addEventListener("click", () => {
@@ -695,7 +558,8 @@
       listenToGeneralRanking();
     });
 
-    // Al cargar la página, arrancamos el listener del ranking general
+    // Al cargar la página, primero cargamos las preguntas y luego arrancamos el listener del ranking general
+    loadQuestions();
     listenToGeneralRanking();
   </script>
 </body>
