@@ -161,7 +161,7 @@
 
     // 1) Configuración de Firebase
     const firebaseConfig = {
-      apiKey: "AIzaSyDAYh1x8p1wbdNEM4nA33y9sWh2Q3MrLxo",
+      apiKey: "AIzaSyDAYh1x1xwbdNEM4nA33y9sWh2Q3MrLxo",
       authDomain: "bugura-cf2cd.firebaseapp.com",
       databaseURL: "https://bugura-cf2cd-default-rtdb.firebaseio.com",
       projectId: "bugura-cf2cd",
@@ -455,8 +455,8 @@
         const qObj = questions[questionIdx];
         if (!qObj) return state;
 
-        // CORRECCIÓN: usar "correctIndex" tal como viene en Firebase
-        if (selectedIndex === qObj.correctIndex) {
+        // Comparamos con correctAnswerIndex, que coincide con campo en Firebase
+        if (selectedIndex === qObj.correctAnswerIndex) {
           state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
           state.pointer = ptr + 1;
         }
@@ -504,7 +504,8 @@
         const idx = state.questionOrder[i];
         usedUpdates[`salas/${roomId}/usedQuestions/${idx}`] = true;
       }
-      await update(ref(db, usedUpdates));
+      // Importante: actualizar bajo la raíz
+      await update(ref(db), usedUpdates);
 
       // 5) Después de 5 segundos, volver a pantalla Join
       setTimeout(() => {
@@ -579,7 +580,7 @@
           .map(key => ({
             text: qObj[key].text,
             options: qObj[key].options,
-            correctIndex: qObj[key].correctIndex   // ahora uso "correctIndex"
+            correctAnswerIndex: qObj[key].correctAnswerIndex  // coincidencia con campo en JSON
           }));
         btnCreateRoom.disabled = false;
         btnJoinRoom.disabled   = false;
