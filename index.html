@@ -472,8 +472,8 @@
         const qObj = questions[questionIdx];
         if (!qObj) return state;
 
-        // Usamos correctAnswerIndex (no correctIndex)
-        if (selectedIndex === qObj.correctAnswerIndex) {
+        // Comparamos contra correctIndex (no correctAnswerIndex)
+        if (selectedIndex === qObj.correctIndex) {
           state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
           state.pointer = ptr + 1;
         }
@@ -597,7 +597,7 @@
           .map(key => ({
             text: qObj[key].text,
             options: qObj[key].options,
-            correctAnswerIndex: qObj[key].correctAnswerIndex
+            correctIndex: qObj[key].correctIndex
           }));
         btnCreateRoom.disabled = false;
         btnJoinRoom.disabled   = false;
