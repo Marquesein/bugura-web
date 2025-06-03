@@ -417,7 +417,6 @@
         btn.textContent = opt;
         btn.disabled = !soyMiTurno;
         btn.addEventListener("click", () => {
-          // Deshabilito todas inmediatamente
           quizOptionsDiv.querySelectorAll("button").forEach(b => b.disabled = true);
           handleAnswer(idx);
         });
@@ -456,8 +455,8 @@
         const qObj = questions[questionIdx];
         if (!qObj) return state;
 
-        // CORRECCIÓN: usar campo “correctAnswerIndex” (no “correctIndex”)
-        if (selectedIndex === qObj.correctAnswerIndex) {
+        // CORRECCIÓN: usar "correctIndex" tal como viene en Firebase
+        if (selectedIndex === qObj.correctIndex) {
           state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
           state.pointer = ptr + 1;
         }
@@ -505,7 +504,7 @@
         const idx = state.questionOrder[i];
         usedUpdates[`salas/${roomId}/usedQuestions/${idx}`] = true;
       }
-      await update(ref(db), usedUpdates);
+      await update(ref(db, usedUpdates));
 
       // 5) Después de 5 segundos, volver a pantalla Join
       setTimeout(() => {
@@ -580,7 +579,7 @@
           .map(key => ({
             text: qObj[key].text,
             options: qObj[key].options,
-            correctAnswerIndex: qObj[key].correctAnswerIndex  // asegurar campo correcto
+            correctIndex: qObj[key].correctIndex   // ahora uso "correctIndex"
           }));
         btnCreateRoom.disabled = false;
         btnJoinRoom.disabled   = false;
