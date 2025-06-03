@@ -455,8 +455,8 @@
         const qObj = questions[questionIdx];
         if (!qObj) return state;
 
-        // COMPARAR CON 'correctIndex'
-        if (selectedIndex === qObj.correctIndex) {
+        // COMPARAR CON 'correctAnswerIndex'
+        if (selectedIndex === qObj.correctAnswerIndex) {
           state.scores[currentUserName] = (state.scores[currentUserName] || 0) + 1;
           state.pointer = ptr + 1;
         }
@@ -579,7 +579,7 @@
           .map(key => ({
             text: qObj[key].text,
             options: qObj[key].options,
-            correctIndex: qObj[key].correctIndex  // debe coincidir con tu JSON
+            correctAnswerIndex: qObj[key].correctAnswerIndex
           }));
         btnCreateRoom.disabled = false;
         btnJoinRoom.disabled   = false;
