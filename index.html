@@ -530,7 +530,6 @@
       joinScreenDiv.classList.remove("hidden");
       quizScreenDiv.classList.add("hidden");
       clearUsersList();
-      rankingListUl.innerHTML = "";
       countdownDiv.textContent = "";
       hasCountdownStarted = false;
       userListGlobal = [];
@@ -540,6 +539,7 @@
         countdownTimer = null;
       }
 
+      // Reiniciar sólo state, SIN tocar usedQuestions
       await set(ref(db, `salas/${roomId}/state`), {
         turnIndex: 0,
         pointer: 0,
@@ -547,35 +547,41 @@
         scores: {}
       });
 
-      // Después de volver a pantalla inicial, recargamos ranking general
+      // **Forzamos la recarga inmediata del ranking general**
       listenToGeneralRanking();
     }
 
     // 16) Generar nuevo orden aleatorio de preguntas para la sala
     async function generateNewQuestionOrder(roomId) {
+      // Obtener usedQuestions de DB
       const usedSnap = await get(ref(db, `salas/${roomId}/usedQuestions`));
       const usedObj = usedSnap.val() || {};
       const usedIndices = new Set(Object.keys(usedObj).map(k => parseInt(k)));
 
+      // Construir array de índices disponibles
       const allIndices = questions.map((_, i) => i);
-      const remaining = allIndices.filter(i => !usedIndices.has(i));
+      let remaining = allIndices.filter(i => !usedIndices.has(i));
 
+      // Si se agotaron, en lugar de vaciar usedQuestions, simplemente volvemos a barajar
       if (remaining.length === 0) {
-        console.warn("Ya se han usado todas las preguntas; no se reinicia usedQuestions.");
-        return;
+        remaining = allIndices.slice(); // copiamos todos
+        // — ya NO HACEMOS await set(...) para vaciar usedQuestions —
       }
 
+      // Mezclar “remaining” (Fisher–Yates)
       for (let i = remaining.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
       }
 
+      // Obtener lista de usuarios actuales para inicializar scores
       const usersSnap = await get(ref(db, `salas/${roomId}/usuarios`));
       const usersObj = usersSnap.val() || {};
       const users = Object.keys(usersObj);
       const initialScores = {};
       users.forEach(u => { initialScores[u] = 0; });
 
+      // Escribir en state.questionOrder el array “remaining” y reiniciar pointer, turnIndex, scores
       await update(ref(db, `salas/${roomId}/state`), {
         questionOrder: remaining,
         pointer: 0,
